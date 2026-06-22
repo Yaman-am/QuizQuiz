@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuizFlow — اختبارات المادة</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top-bar">
+  <a href="index.html" class="top-bar-brand">
+    <span class="brand-icon">Q</span>
+    QuizFlow
+  </a>
+  <div class="top-bar-actions">
+    <button class="theme-toggle" id="theme-toggle">🌙 داكن</button>
+  </div>
+</header>
+
+<main class="main-content">
+  <div class="container">
+
+    <!-- Breadcrumb -->
+    <div class="breadcrumb" style="margin-bottom:20px">
+      <a href="index.html">الرئيسية</a>
+      <span class="sep">/</span>
+      <span id="bc-subject">...</span>
+    </div>
+
+    <!-- Header -->
+    <div style="margin-bottom:24px">
+      <h1 id="subject-title" style="font-size:1.5rem;font-weight:700;margin-bottom:5px">...</h1>
+      <p id="subject-meta" style="color:var(--text-muted);font-size:.88rem"></p>
+    </div>
+
+    <!-- Quiz list -->
+    <div id="quiz-list" style="display:flex;flex-direction:column;gap:12px"></div>
+
+    <!-- Empty -->
+    <div id="empty-state" class="card empty-state" style="display:none">
+      <div class="es-icon">📭</div>
+      <h3>لا توجد اختبارات في هذه المادة بعد</h3>
+    </div>
+
+  </div>
+</main>
+
+<div id="toast-container"></div>
+<script src="data.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  initTheme('theme-toggle');
+
+  const params = new URLSearchParams(location.search);
+  const sid = params.get('sid');
+  if (!sid) { location.href = 'index.html'; return; }
+
+  const subject = DB.getSubject(sid);
+  if (!subject) { location.href = 'index.html'; return; }
+
+  document.title = `QuizFlow — ${subject.name}`;
+  document.getElementById('bc-subject').textContent    = subject.name;
+  document.getElementById('subject-title').textContent = subject.name;
+
+  const quizzes = subject.quizzes || [];
+  const meta = quizzes.length === 1 ? 'اختبار واحد' : `${quizzes.length} اختبارات`;
+  document.getElementById('subject-meta').textContent = meta;
+
+  const list  = document.getElementById('quiz-list');
+  const empty = document.getElementById('empty-state');
+
+  if (quizzes.length === 0) {
+    empty.style.display = 'block';
+    return;
+  }
+
+  list.innerHTML = quizzes.map((q, i) => {
+    const qCount = q.questions?.length || 0;
+    return `
+      <a href="exam.html?sid=${sid}&qid=${q.id}" class="card quiz-card card-flat">
+        <div class="q-num">${i + 1}</div>
+        <div class="q-info">
+          <div class="q-title">${escHtml(q.title)}</div>
+          <div class="q-meta">${qCount} سؤال</div>
+        </div>
+        <div class="s-arrow" style="color:var(--text-muted);font-size:1.1rem">←</div>
+      </a>`;
+  }).join('');
+});
+</script>
+</body>
+</html>
