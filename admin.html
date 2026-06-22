@@ -19,100 +19,109 @@
     </div>
   </header>
 
-  <div class="admin-layout">
-    <nav class="sidebar">
-      <div class="sidebar-section">الإدارة</div>
-      <ul class="sidebar-nav">
-        <li><a href="#" class="active">المواد والامتحانات</a></li>
-      </ul>
-      <div class="sidebar-section">البيانات</div>
-      <ul class="sidebar-nav">
-        <li><button id="btn-export">تصدير JSON</button></li>
-        <li><button id="btn-import">استيراد JSON</button></li>
-        <li><button id="btn-clear-all">حذف الكل</button></li>
-      </ul>
-      <div class="sidebar-section">روابط</div>
-      <ul class="sidebar-nav">
-        <li><a href="index.html">صفحة الطلاب</a></li>
-      </ul>
-    </nav>
-
-    <main class="admin-main">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:24px">
-        <div>
-          <h2>لوحة الامتحانات</h2>
-          <p class="page-subtitle">أنشئ مادة، أضف امتحان، ثم ضع أسئلته. ما تضيفه هنا يظهر مباشرة في صفحة الطلاب.</p>
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn btn-ghost" id="btn-add-subject">+ مادة</button>
-          <button class="btn btn-primary" id="btn-add-quiz">+ امتحان</button>
-        </div>
+  <main class="admin-main admin-main-polished">
+    <section class="admin-hero">
+      <div>
+        <span class="admin-kicker">لوحة التحكم</span>
+        <h2>إدارة المواد والامتحانات</h2>
+        <p class="page-subtitle">أنشئ مادة، أضف امتحان، ثم ضع أسئلته. ما تضيفه هنا يظهر مباشرة في صفحة الطلاب.</p>
       </div>
-
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="sc-label">المواد</div>
-          <div class="sc-value" id="stat-subjects">0</div>
-          <div class="sc-sub">مواد منشأة</div>
-        </div>
-        <div class="stat-card">
-          <div class="sc-label">الامتحانات</div>
-          <div class="sc-value" id="stat-quizzes">0</div>
-          <div class="sc-sub">امتحانات للطلاب</div>
-        </div>
-        <div class="stat-card">
-          <div class="sc-label">الأسئلة</div>
-          <div class="sc-value" id="stat-questions">0</div>
-          <div class="sc-sub">إجمالي الأسئلة</div>
-        </div>
+      <div class="admin-hero-actions">
+        <button class="btn btn-ghost" id="btn-add-subject">+ مادة</button>
+        <button class="btn btn-primary" id="btn-add-quiz">+ امتحان</button>
       </div>
+    </section>
 
-      <div class="form-card">
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;align-items:end">
-          <div class="form-group" style="margin-bottom:0">
+    <section class="stats-grid admin-stats">
+      <div class="stat-card">
+        <div class="sc-label">المواد</div>
+        <div class="sc-value" id="stat-subjects">0</div>
+        <div class="sc-sub">مواد منشأة</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-label">الامتحانات</div>
+        <div class="sc-value" id="stat-quizzes">0</div>
+        <div class="sc-sub">امتحانات للطلاب</div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-label">الأسئلة</div>
+        <div class="sc-value" id="stat-questions">0</div>
+        <div class="sc-sub">إجمالي الأسئلة</div>
+      </div>
+    </section>
+
+    <section class="admin-workspace">
+      <aside class="admin-control-panel">
+        <div class="panel-section">
+          <div class="panel-heading">
+            <h3>اختيار الامتحان</h3>
+            <span>المادة الحالية ومحتواها</span>
+          </div>
+
+          <div class="form-group">
             <label class="form-label" for="subject-select">المادة</label>
             <select class="form-control" id="subject-select"></select>
           </div>
-          <div class="form-group" style="margin-bottom:0">
+
+          <div class="form-group">
             <label class="form-label" for="quiz-select">الامتحان</label>
             <select class="form-control" id="quiz-select"></select>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
+
+          <div class="panel-actions-grid">
             <button class="btn btn-ghost btn-sm" id="btn-edit-subject">تعديل المادة</button>
             <button class="btn btn-ghost btn-sm" id="btn-edit-quiz">تعديل الامتحان</button>
           </div>
         </div>
-      </div>
 
-      <div id="empty-state" class="empty-state" style="display:none">
-        <div class="es-icon">📭</div>
-        <h3>ابدأ بإضافة مادة وامتحان</h3>
-        <p>بعدها سيظهر زر إضافة الأسئلة لهذا الامتحان.</p>
-      </div>
+        <div class="panel-section panel-section-muted">
+          <div class="panel-heading">
+            <h3>البيانات</h3>
+            <span>نسخ احتياطي واستيراد</span>
+          </div>
+          <div class="panel-actions-stack">
+            <button class="btn btn-ghost btn-sm" id="btn-export">تصدير JSON</button>
+            <button class="btn btn-ghost btn-sm" id="btn-import">استيراد JSON</button>
+            <button class="btn btn-danger btn-sm" id="btn-clear-all">حذف الكل</button>
+          </div>
+        </div>
+      </aside>
 
-      <div id="question-panel" style="display:none">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px">
-          <h3 id="current-title" style="font-size:1.05rem"></h3>
-          <button class="btn btn-primary" id="btn-open-question-modal">+ سؤال</button>
+      <section class="admin-question-area">
+        <div id="empty-state" class="empty-state admin-empty" style="display:none">
+          <div class="es-icon">📭</div>
+          <h3>ابدأ بإضافة مادة وامتحان</h3>
+          <p>بعدها سيظهر جدول الأسئلة وزر إضافة سؤال لهذا الامتحان.</p>
         </div>
-        <div id="q-table-wrap" class="q-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>السؤال</th>
-                <th>النوع</th>
-                <th>الخيارات</th>
-                <th>الصحيح</th>
-                <th>إجراءات</th>
-              </tr>
-            </thead>
-            <tbody id="q-table-body"></tbody>
-          </table>
+
+        <div id="question-panel" class="question-panel-card" style="display:none">
+          <div class="question-panel-header">
+            <div>
+              <span class="admin-kicker">الأسئلة</span>
+              <h3 id="current-title"></h3>
+            </div>
+            <button class="btn btn-primary" id="btn-open-question-modal">+ سؤال</button>
+          </div>
+
+          <div id="q-table-wrap" class="q-table-wrap admin-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>السؤال</th>
+                  <th>النوع</th>
+                  <th>الخيارات</th>
+                  <th>الصحيح</th>
+                  <th>إجراءات</th>
+                </tr>
+              </thead>
+              <tbody id="q-table-body"></tbody>
+            </table>
+          </div>
         </div>
-      </div>
-    </main>
-  </div>
+      </section>
+    </section>
+  </main>
 </div>
 
 <div id="question-modal" class="modal-backdrop" style="display:none">
