@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuizFlow — اختبار</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top-bar">
+  <a href="index.html" class="top-bar-brand">
+    <span class="brand-icon">Q</span>
+    QuizFlow
+  </a>
+  <div class="top-bar-actions">
+    <button class="theme-toggle" id="theme-toggle">🌙 داكن</button>
+  </div>
+</header>
+
+<!-- Progress bar -->
+<div style="padding:0 0;background:var(--border);height:5px">
+  <div id="progress-fill" class="progress-fill" style="width:0%;height:100%;background:linear-gradient(90deg,var(--accent),#4FACFE);transition:width .5s cubic-bezier(.4,0,.2,1)"></div>
+</div>
+
+<main class="main-content">
+
+  <!-- Intro -->
+  <div id="screen-intro" class="container" style="display:none">
+    <div class="card" style="text-align:center;padding:44px 28px">
+      <div style="font-size:2.5rem;margin-bottom:16px">📋</div>
+      <h1 id="intro-title" style="font-size:1.5rem;font-weight:700;margin-bottom:8px"></h1>
+      <p id="intro-sub" style="color:var(--text-muted);margin-bottom:6px"></p>
+      <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:24px">بمجرد اختيار الإجابة تُقفل مباشرةً — فكّر جيداً!</p>
+
+      <!-- Breadcrumb -->
+      <div class="breadcrumb" style="justify-content:center;margin-bottom:22px">
+        <a href="index.html">الرئيسية</a>
+        <span class="sep">/</span>
+        <a id="intro-bc-sub" href="#">...</a>
+        <span class="sep">/</span>
+        <span id="intro-bc-quiz">...</span>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;margin-bottom:22px">
+        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:.85rem;font-weight:600;color:var(--text-muted);border:2px solid var(--border);border-radius:99px;padding:6px 14px;transition:all .2s" id="shuffle-label">
+          <input type="checkbox" id="shuffle-toggle" style="accent-color:var(--accent)"> 🔀 ترتيب عشوائي
+        </label>
+      </div>
+
+      <button class="btn btn-primary btn-lg" id="btn-start">ابدأ الاختبار ←</button>
+    </div>
+  </div>
+
+  <!-- Question -->
+  <div id="screen-exam" class="container" style="display:none">
+    <div id="question-stage"></div>
+  </div>
+
+  <!-- Result -->
+  <div id="screen-result" class="container" style="display:none">
+    <div class="card" id="result-card"></div>
+  </div>
+
+</main>
+
+<div id="toast-container"></div>
+<script src="data.js"></script>
+<script>
+'use strict';
+
+/* ── State ────────────────────────────────────────────────── */
+let sid, qid, subject, quiz;
+let questions = [];
+let answers   = [];   // null | { selected: number[], correct: bool, partial: bool }
+let current   = 0;
+
+/* ── Init ─────────────────────────────────────────────────── */
+document.addEventListener('DOMContentLoaded', () => {
+  initTheme('theme-toggle');
+
+  const params = new URLSearchParams(location.search);
+  sid = params.get('sid');
+  qid = params.get('qid');
+
+  if (!sid || !qid) { location.href = 'index.html'; return; }
+
+  subject = DB.getSubject(sid);
+  quiz    = DB.getQuiz(sid, qid);
+
+  if (!subject || !quiz) { location.href = 'index.html'; return; }
+
+  document.title = `QuizFlow — ${quiz.title}`;
+
+  // Intro screen
+  document.getElementById('intro-title').textContent   = quiz.title;
+  document.getElementById('intro-sub').textContent     = `${quiz.questions.length} سؤال`;
+  document.getElementById('intro-bc-sub').textContent  = subject.name;
+  document.getElementById('intro-bc-sub').href         = `subject.html?sid=${sid}`;
+  document.getElementById('intro-bc-quiz').textContent = quiz.title;
+
+  showScreen('intro');
+
+  document.getElementById('btn-start').addEventListener('click', startQuiz);
+
+  const shuffleLbl = document.getElementById('shuffle-label');
+  const shuffleCb  = document.getElementById('shuffle-toggle');
+  shuffleCb.addEventListener('change', () => {
+    shuffleLbl.style.borderColor = shuffleCb.checked ? 'var(--accent)' : 'var(--border)';
+    shuffleLbl.style.color       = shuffleCb.checked ? 'var(--accent)' : 'var(--text-muted)';
+    shuffleLbl.style.background  = shuffleCb.checked ? 'var(--accent-light)' : 'transparent';
+  });
+});
+
+function startQuiz() {
+  const raw = quiz.questions;
+  questions = document.getElementById('shuffle-toggle').checked ? shuffle(raw) : [...raw];
+  answers   = new Array(questions.length).fill(null);
+  current   = 0;
+  showScreen('exam');
+  renderQuestion(current, 'next');
+  updateProgress();
+}
+
+/* ── Screens ──────────────────────────────────────────────── */
+function showScreen(name) {
+  ['intro','exam','result'].forEach(n => {
+    document.getElementById(`screen-${n}`).style.display = 'none';
+  });
+  document.getElementById(`screen-${name}`).style.display = 'block';
+}
+
+/* ── Progress ─────────────────────────────────────────────── */
+function updateProgress() {
+  const pct = Math.round(((current + 1) / questions.length) * 100);
+  document.getElementById('progress-fill').style.width = pct + '%';
+}
+
+/* ── Render Question ──────────────────────────────────────── */
+function renderQuestion(idx, dir) {
+  const q      = questions[idx];
+  const saved  = answers[idx];
+  const locked = saved !== null;
+  const isLast = idx === questions.length - 1;
+  const isMulti = q.type === 'multi';
+
+  const typeLabel = q.type === 'tf' ? 'صح أم خطأ' : q.type === 'multi' ? 'اختيار متعدد' : 'اختيار واحد';
+  const inClass   = dir === 'next' ? 'slide-in-right' : 'slide-in-left';
+
+  // Build options
+  const optHTML = q.answers.map((ans, i) => {
+    let state = '', badge = '';
+    const isIndicatorCheckbox = isMulti ? 'checkbox' : '';
+
+    if (locked) {
+      const wasSelected = saved.selected.includes(i);
+      if (ans.correct && wasSelected)  { state = 'correct'; badge = '<span class="opt-badge correct-b">✓ صحيحة</span>'; }
+      else if (!ans.correct && wasSelected) { state = 'wrong';   badge = '<span class="opt-badge wrong-b">✗ خاطئة</span>'; }
+      else if (ans.correct && !wasSelected) { state = 'missed';  badge = '<span class="opt-badge missed-b">✓ كانت صحيحة</span>'; }
+    }
+
+    const selectedClass = (!locked && isMulti) ? 'checkbox-mode' : '';
+
+    return `
+      <li class="option-item ${state} ${locked ? 'locked' : ''} ${selectedClass}" data-index="${i}"
+          tabindex="${locked ? -1 : 0}" role="${isMulti ? 'checkbox' : 'radio'}" aria-checked="false">
+        <span class="opt-indicator ${isMulti ? 'checkbox' : ''}"></span>
+        <span class="opt-label">${escHtml(ans.text)}</span>
+        ${badge}
+      </li>`;
+  }).join('');
+
+  // Feedback
+  let feedbackHTML = '';
+  if (locked) {
+    if (saved.correct) {
+      feedbackHTML = `<div class="feedback-box fb-correct">✅ إجابة صحيحة تماماً! أحسنت.</div>`;
+    } else if (saved.partial) {
+      const correctOnes = q.answers.filter(a => a.correct).map(a => escHtml(a.text)).join('، ');
+      feedbackHTML = `<div class="feedback-box fb-partial">⚠️ إجابة جزئية. الإجابات الصحيحة: <strong>${correctOnes}</strong></div>`;
+    } else {
+      const correctOnes = q.answers.filter(a => a.correct).map(a => escHtml(a.text)).join('، ');
+      feedbackHTML = `<div class="feedback-box fb-wrong">❌ إجابة خاطئة. الصحيحة: <strong>${correctOnes}</strong></div>`;
+    }
+  }
+
+  // Multi-select hint (before answering)
+  const multiHint = (!locked && isMulti)
+    ? `<div class="multi-hint">⚠️ يمكنك اختيار أكثر من إجابة — اضغط "تأكيد" بعد اختيارك</div>`
+    : '';
+
+  const html = `
+    <div class="card ${inClass}">
+      <div class="q-card-header">
+        <div class="q-type-badge">${typeLabel}</div>
+        <h2>${escHtml(q.text)}</h2>
+        ${multiHint}
+      </div>
+      <div class="q-card-body">
+        <ul class="options-list" id="options-list">${optHTML}</ul>
+        ${feedbackHTML}
+      </div>
+      <div class="q-card-footer">
+        <span class="q-counter">سؤال ${idx + 1} من ${questions.length}</span>
+        <div style="display:flex;gap:9px">
+          <button class="btn btn-ghost" id="btn-prev" ${idx === 0 ? 'disabled' : ''}>→ السابق</button>
+          ${isMulti && !locked
+            ? `<button class="btn btn-primary" id="btn-confirm" disabled>تأكيد الإجابة ✓</button>`
+            : `<button class="btn btn-primary" id="btn-next" ${!locked ? 'disabled' : ''}>${isLast ? 'إنهاء ✓' : 'التالي ←'}</button>`
+          }
+        </div>
+      </div>
+    </div>`;
+
+  document.getElementById('question-stage').innerHTML = html;
+
+  // Bind prev
+  document.getElementById('btn-prev')?.addEventListener('click', () => {
+    if (current > 0) { current--; renderQuestion(current, 'prev'); updateProgress(); }
+  });
+
+  // Bind next
+  document.getElementById('btn-next')?.addEventListener('click', () => {
+    if (current < questions.length - 1) { current++; renderQuestion(current, 'next'); updateProgress(); }
+    else showResults();
+  });
+
+  if (!locked) {
+    if (isMulti) {
+      bindMultiOptions();
+    } else {
+      bindSingleOptions();
+    }
+  }
+}
+
+/* ── Single answer (mcq / tf) ─────────────────────────────── */
+function bindSingleOptions() {
+  document.querySelectorAll('#options-list .option-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const idx = parseInt(el.dataset.index);
+      const q   = questions[current];
+      const correct = q.answers[idx].correct;
+      answers[current] = { selected: [idx], correct, partial: false };
+      renderQuestionLockedSingle(idx, correct);
+      updateProgress();
+    });
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); }
+    });
+  });
+}
+
+function renderQuestionLockedSingle(selectedIdx, correct) {
+  const q = questions[current];
+  document.querySelectorAll('#options-list .option-item').forEach((el, i) => {
+    el.classList.add('locked');
+    if (i === selectedIdx) {
+      el.classList.add(correct ? 'correct' : 'wrong');
+      el.insertAdjacentHTML('beforeend', correct
+        ? '<span class="opt-badge correct-b">✓ صحيحة</span>'
+        : '<span class="opt-badge wrong-b">✗ خاطئة</span>');
+    } else if (q.answers[i].correct && !correct) {
+      el.classList.add('missed');
+      el.insertAdjacentHTML('beforeend', '<span class="opt-badge missed-b">✓ كانت صحيحة</span>');
+    }
+  });
+
+  const body = document.querySelector('.q-card-body');
+  const correctOnes = q.answers.filter(a => a.correct).map(a => escHtml(a.text)).join('، ');
+  const fb = document.createElement('div');
+  fb.className = `feedback-box ${correct ? 'fb-correct' : 'fb-wrong'}`;
+  fb.innerHTML = correct
+    ? '✅ إجابة صحيحة! أحسنت.'
+    : `❌ إجابة خاطئة. الصحيحة: <strong>${correctOnes}</strong>`;
+  body.appendChild(fb);
+
+  // Replace confirm/next button
+  const footer = document.querySelector('.q-card-footer div');
+  const isLast = current === questions.length - 1;
+  const nextBtn = document.createElement('button');
+  nextBtn.className = 'btn btn-primary';
+  nextBtn.textContent = isLast ? 'إنهاء ✓' : 'التالي ←';
+  nextBtn.addEventListener('click', () => {
+    if (current < questions.length - 1) { current++; renderQuestion(current, 'next'); updateProgress(); }
+    else showResults();
+  });
+  footer.appendChild(nextBtn);
+}
+
+/* ── Multi answer ─────────────────────────────────────────── */
+let multiSelected = new Set();
+
+function bindMultiOptions() {
+  multiSelected = new Set();
+  const confirmBtn = document.getElementById('btn-confirm');
+
+  document.querySelectorAll('#options-list .option-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const idx = parseInt(el.dataset.index);
+      if (multiSelected.has(idx)) {
+        multiSelected.delete(idx);
+        el.classList.remove('selected', 'checkbox-mode');
+        el.classList.add('checkbox-mode');
+        // re-apply visual
+        updateMultiVisuals();
+      } else {
+        multiSelected.add(idx);
+        updateMultiVisuals();
+      }
+      confirmBtn.disabled = multiSelected.size === 0;
+    });
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); }
+    });
+  });
+
+  confirmBtn.addEventListener('click', () => {
+    if (multiSelected.size === 0) return;
+    submitMulti();
+  });
+}
+
+function updateMultiVisuals() {
+  document.querySelectorAll('#options-list .option-item').forEach(el => {
+    const idx = parseInt(el.dataset.index);
+    el.classList.toggle('selected', multiSelected.has(idx));
+    el.classList.add('checkbox-mode');
+  });
+}
+
+function submitMulti() {
+  const q = questions[current];
+  const selected = [...multiSelected];
+  const correctIndices = q.answers.map((a, i) => a.correct ? i : -1).filter(i => i !== -1);
+
+  const allCorrectSelected  = correctIndices.every(i => selected.includes(i));
+  const noWrongSelected     = selected.every(i => q.answers[i].correct);
+  const correct  = allCorrectSelected && noWrongSelected;
+  const partial  = !correct && selected.some(i => q.answers[i].correct);
+
+  answers[current] = { selected, correct, partial };
+
+  // Lock visuals
+  document.querySelectorAll('#options-list .option-item').forEach((el, i) => {
+    el.classList.add('locked');
+    el.classList.remove('selected', 'checkbox-mode');
+    const wasSelected = selected.includes(i);
+    if (q.answers[i].correct && wasSelected)  { el.classList.add('correct'); el.insertAdjacentHTML('beforeend', '<span class="opt-badge correct-b">✓ صحيحة</span>'); }
+    else if (!q.answers[i].correct && wasSelected) { el.classList.add('wrong');   el.insertAdjacentHTML('beforeend', '<span class="opt-badge wrong-b">✗ خاطئة</span>'); }
+    else if (q.answers[i].correct && !wasSelected) { el.classList.add('missed');  el.insertAdjacentHTML('beforeend', '<span class="opt-badge missed-b">✓ كانت صحيحة</span>'); }
+  });
+
+  const body = document.querySelector('.q-card-body');
+  // Remove hint
+  body.querySelector('.multi-hint')?.remove();
+  const correctOnes = q.answers.filter(a => a.correct).map(a => escHtml(a.text)).join('، ');
+  const fb = document.createElement('div');
+  fb.className = `feedback-box ${correct ? 'fb-correct' : partial ? 'fb-partial' : 'fb-wrong'}`;
+  fb.innerHTML = correct
+    ? '✅ إجابة صحيحة تماماً! أحسنت.'
+    : partial
+    ? `⚠️ إجابة جزئية. الإجابات الصحيحة: <strong>${correctOnes}</strong>`
+    : `❌ إجابة خاطئة. الصحيحة: <strong>${correctOnes}</strong>`;
+  body.appendChild(fb);
+
+  // Replace confirm with next
+  const footer = document.querySelector('.q-card-footer div');
+  const confirmBtn = document.getElementById('btn-confirm');
+  confirmBtn.remove();
+  const isLast = current === questions.length - 1;
+  const nextBtn = document.createElement('button');
+  nextBtn.className = 'btn btn-primary';
+  nextBtn.textContent = isLast ? 'إنهاء ✓' : 'التالي ←';
+  nextBtn.addEventListener('click', () => {
+    if (current < questions.length - 1) { current++; renderQuestion(current, 'next'); updateProgress(); }
+    else showResults();
+  });
+  footer.appendChild(nextBtn);
+
+  updateProgress();
+}
+
+/* ── Results ──────────────────────────────────────────────── */
+function showResults() {
+  const total    = questions.length;
+  const correct  = answers.filter(a => a?.correct).length;
+  const partial  = answers.filter(a => a?.partial).length;
+  const wrong    = answers.filter(a => a !== null && !a.correct && !a.partial).length;
+  const pct      = Math.round((correct / total) * 100);
+
+  let emoji = '😔', label = 'حاول مرة أخرى!';
+  if (pct >= 90)      { emoji = '🏆'; label = 'ممتاز! نتيجة رائعة!'; }
+  else if (pct >= 70) { emoji = '🎉'; label = 'عمل جيد جداً!'; }
+  else if (pct >= 50) { emoji = '👍'; label = 'جهد مقبول، استمر!'; }
+
+  const breakdownHTML = questions.map((q, i) => {
+    const ans = answers[i];
+    const cls = ans?.correct ? 'bi-c' : ans?.partial ? 'bi-p' : 'bi-w';
+    const icon = ans?.correct ? '✅' : ans?.partial ? '⚠️' : '❌';
+    const selectedTxt = ans
+      ? ans.selected.map(si => escHtml(q.answers[si]?.text)).join('، ')
+      : 'لم تجب';
+    const correctTxt = q.answers.filter(a => a.correct).map(a => escHtml(a.text)).join('، ');
+    return `
+      <div class="breakdown-item ${cls}">
+        <span style="font-size:1rem;flex-shrink:0;margin-top:1px">${icon}</span>
+        <div>
+          <div class="bi-q">${escHtml(q.text)}</div>
+          <div class="bi-a">إجابتك: <strong>${selectedTxt}</strong>
+            ${!ans?.correct ? ` · الصحيحة: <strong>${correctTxt}</strong>` : ''}
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  document.getElementById('result-card').innerHTML = `
+    <div class="result-hero">
+      <div class="score-ring" style="--pct:${pct}">
+        <div class="score-inner">
+          <div class="sn">${correct}</div>
+          <div class="sd">/ ${total}</div>
+        </div>
+      </div>
+      <div class="result-title">${emoji} ${label}</div>
+      <div class="result-subtitle">حصلت على ${pct}% من درجات الاختبار</div>
+      <div class="result-stats">
+        <div class="stat-pill sp-total">📋 ${total} سؤال</div>
+        <div class="stat-pill sp-correct">✅ ${correct} صحيحة</div>
+        ${partial > 0 ? `<div class="stat-pill sp-partial">⚠️ ${partial} جزئية</div>` : ''}
+        <div class="stat-pill sp-wrong">❌ ${wrong} خاطئة</div>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+        <button class="btn btn-primary btn-lg" id="btn-restart">🔄 إعادة الاختبار</button>
+        <a href="subject.html?sid=${sid}" class="btn btn-ghost btn-lg">← العودة للمادة</a>
+      </div>
+    </div>
+    <div class="breakdown">
+      <div class="breakdown-title">تفصيل الإجابات</div>
+      ${breakdownHTML}
+    </div>`;
+
+  document.getElementById('progress-fill').style.width = '100%';
+  showScreen('result');
+  document.getElementById('btn-restart').addEventListener('click', () => {
+    current = 0; answers = [];
+    showScreen('intro');
+    document.getElementById('progress-fill').style.width = '0%';
+  });
+}
+</script>
+</body>
+</html>
