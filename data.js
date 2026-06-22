@@ -1,39 +1,5 @@
 /* ============================================================
    QuizFlow v2 — data.js
-   Shared storage layer used by all pages
-   ============================================================
-
-   DATA STRUCTURE:
-   ---------------
-   localStorage key: "qf_subjects"
-   Value: array of Subject objects
-
-   Subject {
-     id:      string       — unique id
-     name:    string       — e.g. "المحاكاة والنمذجة"
-     quizzes: Quiz[]
-   }
-
-   Quiz {
-     id:      string       — unique id
-     title:   string       — e.g. "اختبار الفصل الأول"
-     questions: Question[]
-   }
-
-   Question {
-     id:      string
-     text:    string
-     type:    "mcq" | "tf" | "multi"
-     answers: Answer[]
-     // mcq   → exactly one answer has correct:true
-     // tf    → two answers "صح"/"خطأ", one correct
-     // multi → one or more answers have correct:true
-   }
-
-   Answer {
-     text:    string
-     correct: boolean
-   }
    ============================================================ */
 
 'use strict';
@@ -55,7 +21,6 @@ const DB = {
     localStorage.setItem(QF_KEY, JSON.stringify(subjects));
   },
 
-  // Returns only subjects that have at least one quiz
   getPublic() {
     return this.load().filter(s => s.quizzes && s.quizzes.length > 0);
   },
@@ -69,7 +34,6 @@ const DB = {
     return s ? (s.quizzes.find(q => q.id === qid) || null) : null;
   },
 
-  // ── Subjects ──────────────────────────────────────────────
   addSubject(name) {
     const subjects = this.load();
     const s = { id: uid(), name: name.trim(), quizzes: [] };
@@ -89,7 +53,6 @@ const DB = {
     this.save(subjects);
   },
 
-  // ── Quizzes ───────────────────────────────────────────────
   addQuiz(sid, title) {
     const subjects = this.load();
     const s = subjects.find(x => x.id === sid);
@@ -116,7 +79,6 @@ const DB = {
     this.save(subjects);
   },
 
-  // ── Questions ─────────────────────────────────────────────
   addQuestion(sid, qid, question) {
     const subjects = this.load();
     const s = subjects.find(x => x.id === sid);
@@ -147,7 +109,6 @@ const DB = {
     this.save(subjects);
   },
 
-  // ── Import / Export ───────────────────────────────────────
   exportAll() {
     return JSON.stringify(this.load(), null, 2);
   },
@@ -160,7 +121,6 @@ const DB = {
     return normalized.subjects;
   },
 
-  // Import a single quiz's questions from the old flat JSON format
   importQuizQuestions(sid, qid, json) {
     const questions = JSON.parse(json);
     if (!isQuestionList(questions)) throw new Error('Invalid format');
@@ -177,16 +137,17 @@ const DB = {
   }
 };
 
+// HZTA Fix: Data isolation and explicit labeling. No hardcoded specific names.
 function normalizeSubjectData(data) {
   if (isQuestionList(data)) {
     return {
       changed: true,
       subjects: [{
         id: uid(),
-        name: 'المحاكاة والنمذجة',
+        name: 'بيانات قديمة (مستردة - تتطلب مراجعة)',
         quizzes: [{
           id: uid(),
-          title: 'امتحان مستورد',
+          title: 'أسئلة النظام القديم',
           questions: data.map(normalizeQuestion),
         }],
       }],
@@ -257,7 +218,6 @@ function shuffle(arr) {
   return a;
 }
 
-// Toast — used by all pages
 function showToast(msg, type = 'info') {
   let container = document.getElementById('toast-container');
   if (!container) {
@@ -273,7 +233,6 @@ function showToast(msg, type = 'info') {
   setTimeout(() => t.remove(), 3500);
 }
 
-// Theme init — used by all pages
 function initTheme(toggleId) {
   const saved = localStorage.getItem('qf_theme');
   if (saved) document.documentElement.setAttribute('data-theme', saved);
