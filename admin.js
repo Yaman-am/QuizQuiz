@@ -1,330 +1,165 @@
-/* ============================================================
-   QuizFlow — admin.js  (dashboard logic)
-   ============================================================ */
-
 'use strict';
 
-const QUESTIONS_KEY = 'quizflow_questions';
+let subjects = [];
+let currentSid = '';
+let currentQid = '';
+let editingQuestionId = null;
 
-/* ── Storage ──────────────────────────────────────────────── */
-function loadQuestions() {
-  try { return JSON.parse(localStorage.getItem(QUESTIONS_KEY) || '[]'); }
-  catch { return []; }
-}
-function saveQuestions(list) {
-  localStorage.setItem(QUESTIONS_KEY, JSON.stringify(list));
-}
+const subjectSelect = document.getElementById('subject-select');
+const quizSelect = document.getElementById('quiz-select');
+const emptyState = document.getElementById('empty-state');
+const questionPanel = document.getElementById('question-panel');
+const currentTitle = document.getElementById('current-title');
+const tableBody = document.getElementById('q-table-body');
 
-/* ── State ────────────────────────────────────────────────── */
-let questions  = [];
-let editingId  = null;
-let searchTerm = '';
+const statSubjects = document.getElementById('stat-subjects');
+const statQuizzes = document.getElementById('stat-quizzes');
+const statQuestions = document.getElementById('stat-questions');
 
-/* ── DOM refs ─────────────────────────────────────────────── */
-const themeToggle   = document.getElementById('theme-toggle');
-const modalBackdrop = document.getElementById('modal-backdrop');
-const modalTitle    = document.getElementById('modal-title');
-const qTextarea     = document.getElementById('q-text');
-const qType         = document.getElementById('q-type');
-const answerList    = document.getElementById('answer-list');
-const btnAddAnswer  = document.getElementById('btn-add-answer');
-const btnSaveQ      = document.getElementById('btn-save-q');
-const btnCancelQ    = document.getElementById('btn-cancel-q');
-const btnOpenModal  = document.getElementById('btn-open-modal');
-const tableBody     = document.getElementById('q-table-body');
-const searchInput   = document.getElementById('q-search');
-const emptyState    = document.getElementById('empty-state');
-const tableWrap     = document.getElementById('q-table-wrap');
+const modal = document.getElementById('question-modal');
+const modalTitle = document.getElementById('modal-title');
+const qText = document.getElementById('q-text');
+const qType = document.getElementById('q-type');
+const answerList = document.getElementById('answer-list');
+const btnAddAnswer = document.getElementById('btn-add-answer');
 
-// Stats
-const statTotal  = document.getElementById('stat-total');
-const statMCQ    = document.getElementById('stat-mcq');
-const statTF     = document.getElementById('stat-tf');
-
-/* ── Theme ────────────────────────────────────────────────── */
-(function initTheme() {
-  const saved = localStorage.getItem('quizflow_theme');
-  if (saved) document.documentElement.setAttribute('data-theme', saved);
-  updateThemeToggle();
-})();
-
-themeToggle?.addEventListener('click', () => {
-  const cur  = document.documentElement.getAttribute('data-theme');
-  const next = cur === 'dark' ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', next);
-  localStorage.setItem('quizflow_theme', next);
-  updateThemeToggle();
+document.addEventListener('DOMContentLoaded', () => {
+  initTheme('theme-toggle');
+  subjects = DB.load();
+  render();
 });
 
-function updateThemeToggle() {
-  if (!themeToggle) return;
-  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-  themeToggle.innerHTML = isDark ? '☀️ Light' : '🌙 Dark';
-}
-
-/* ── Init ─────────────────────────────────────────────────── */
-function init() {
-  questions = loadQuestions();
-  renderTable();
-  updateStats();
-}
-
-/* ── Modal ────────────────────────────────────────────────── */
-function openModal(id = null) {
-  editingId = id;
-  modalTitle.textContent = id ? 'Edit Question' : 'Add Question';
-
-  if (id) {
-    const q = questions.find(x => x.id === id);
-    if (!q) return;
-    qTextarea.value  = q.text;
-    qType.value      = q.type;
-    renderAnswerRows(q.answers, q.type);
-  } else {
-    qTextarea.value = '';
-    qType.value     = 'mcq';
-    renderAnswerRows([
-      { text: '', correct: false },
-      { text: '', correct: false },
-    ], 'mcq');
-  }
-
-  modalBackdrop.classList.remove('hidden');
-  modalBackdrop.style.display = 'flex';
-  qTextarea.focus();
-}
-
-function closeModal() {
-  modalBackdrop.style.display = 'none';
-  editingId = null;
-}
-
-btnOpenModal?.addEventListener('click', () => openModal());
-btnCancelQ?.addEventListener('click', closeModal);
-
-modalBackdrop?.addEventListener('click', e => {
-  if (e.target === modalBackdrop) closeModal();
+document.getElementById('btn-add-subject')?.addEventListener('click', () => {
+  const name = prompt('اسم المادة:');
+  if (!name?.trim()) return;
+  const subject = DB.addSubject(name);
+  currentSid = subject.id;
+  subjects = DB.load();
+  render();
+  showToast('تمت إضافة المادة', 'success');
 });
 
-document.getElementById('modal-close')?.addEventListener('click', closeModal);
+document.getElementById('btn-edit-subject')?.addEventListener('click', () => {
+  const subject = getCurrentSubject();
+  if (!subject) return;
+  const name = prompt('اسم المادة:', subject.name);
+  if (!name?.trim()) return;
+  DB.updateSubject(subject.id, name);
+  subjects = DB.load();
+  render();
+  showToast('تم تعديل المادة', 'success');
+});
 
-/* ── Question Type change ─────────────────────────────────── */
+document.getElementById('btn-add-quiz')?.addEventListener('click', () => {
+  const subject = ensureSubject();
+  if (!subject) return;
+  const title = prompt('عنوان الامتحان:');
+  if (!title?.trim()) return;
+  const quiz = DB.addQuiz(subject.id, title);
+  currentSid = subject.id;
+  currentQid = quiz.id;
+  subjects = DB.load();
+  render();
+  showToast('تمت إضافة الامتحان', 'success');
+});
+
+document.getElementById('btn-edit-quiz')?.addEventListener('click', () => {
+  const subject = getCurrentSubject();
+  const quiz = getCurrentQuiz();
+  if (!subject || !quiz) return;
+  const title = prompt('عنوان الامتحان:', quiz.title);
+  if (!title?.trim()) return;
+  DB.updateQuiz(subject.id, quiz.id, title);
+  subjects = DB.load();
+  render();
+  showToast('تم تعديل الامتحان', 'success');
+});
+
+subjectSelect?.addEventListener('change', () => {
+  currentSid = subjectSelect.value;
+  const subject = getCurrentSubject();
+  currentQid = subject?.quizzes?.[0]?.id || '';
+  render();
+});
+
+quizSelect?.addEventListener('change', () => {
+  currentQid = quizSelect.value;
+  render();
+});
+
+document.getElementById('btn-open-question-modal')?.addEventListener('click', () => openQuestionModal());
+document.getElementById('modal-close')?.addEventListener('click', closeQuestionModal);
+document.getElementById('btn-cancel-q')?.addEventListener('click', closeQuestionModal);
+modal?.addEventListener('click', event => {
+  if (event.target === modal) closeQuestionModal();
+});
+
 qType?.addEventListener('change', () => {
   if (qType.value === 'tf') {
     renderAnswerRows([
-      { text: 'True',  correct: true  },
-      { text: 'False', correct: false },
-    ], 'tf');
+      { text: 'صح', correct: true },
+      { text: 'خطأ', correct: false },
+    ], true);
   } else {
     renderAnswerRows([
       { text: '', correct: false },
       { text: '', correct: false },
-    ], 'mcq');
+    ]);
   }
 });
 
-/* ── Answer Rows ──────────────────────────────────────────── */
-function renderAnswerRows(answers, type) {
-  answerList.innerHTML = '';
-  answers.forEach((ans, i) => addAnswerRow(ans, type === 'tf'));
-  toggleAddAnswerBtn(type);
-}
+btnAddAnswer?.addEventListener('click', () => addAnswerRow());
 
-function toggleAddAnswerBtn(type) {
-  if (btnAddAnswer) {
-    btnAddAnswer.style.display = (type === 'tf' || (qType && qType.value === 'tf')) ? 'none' : '';
-  }
-}
+document.getElementById('btn-save-q')?.addEventListener('click', () => {
+  const subject = getCurrentSubject();
+  const quiz = getCurrentQuiz();
+  if (!subject || !quiz) return;
 
-function addAnswerRow(ans = { text: '', correct: false }, isDisabled = false) {
-  const row = document.createElement('div');
-  row.className = `answer-row ${ans.correct ? 'is-correct' : ''}`;
-  row.innerHTML = `
-    <input type="text" class="answer-text" placeholder="Answer option…" value="${escapeHtml(ans.text)}"
-      ${isDisabled ? 'readonly' : ''}>
-    <label class="answer-correct-label" title="Mark as correct">✓</label>
-    <input type="checkbox" class="answer-correct-check" title="Correct answer" ${ans.correct ? 'checked' : ''}>
-    ${!isDisabled ? '<button class="answer-remove" title="Remove">✕</button>' : ''}`;
+  const question = buildQuestionFromForm();
+  if (!question) return;
 
-  // Checkbox styling
-  const cb = row.querySelector('.answer-correct-check');
-  cb.addEventListener('change', () => {
-    // Uncheck all siblings first (single correct answer)
-    answerList.querySelectorAll('.answer-correct-check').forEach(c => {
-      c.checked = false;
-      c.closest('.answer-row').classList.remove('is-correct');
-    });
-    cb.checked = true;
-    row.classList.add('is-correct');
-  });
-
-  // Remove button
-  row.querySelector('.answer-remove')?.addEventListener('click', () => {
-    row.remove();
-  });
-
-  answerList.appendChild(row);
-}
-
-btnAddAnswer?.addEventListener('click', () => {
-  addAnswerRow();
-});
-
-/* ── Save Question ────────────────────────────────────────── */
-btnSaveQ?.addEventListener('click', () => {
-  const text = qTextarea.value.trim();
-  if (!text) { showToast('Please enter a question.', 'error'); return; }
-
-  const type = qType.value;
-  const rows = [...answerList.querySelectorAll('.answer-row')];
-
-  const answers = rows.map(row => ({
-    text:    row.querySelector('.answer-text').value.trim(),
-    correct: row.querySelector('.answer-correct-check').checked,
-  }));
-
-  // Validation
-  if (answers.some(a => !a.text)) {
-    showToast('All answer fields must be filled.', 'error'); return;
-  }
-  if (!answers.some(a => a.correct)) {
-    showToast('Mark at least one correct answer.', 'error'); return;
-  }
-  if (answers.length < 2) {
-    showToast('Need at least 2 answer options.', 'error'); return;
-  }
-
-  if (editingId) {
-    // Edit
-    const idx = questions.findIndex(q => q.id === editingId);
-    if (idx !== -1) {
-      questions[idx] = { ...questions[idx], text, type, answers };
-      showToast('Question updated ✓', 'success');
-    }
+  if (editingQuestionId) {
+    DB.updateQuestion(subject.id, quiz.id, editingQuestionId, question);
+    showToast('تم تعديل السؤال', 'success');
   } else {
-    // Add
-    questions.push({
-      id:      crypto.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2),
-      text,
-      type,
-      answers,
-    });
-    showToast('Question added ✓', 'success');
+    DB.addQuestion(subject.id, quiz.id, question);
+    showToast('تمت إضافة السؤال', 'success');
   }
 
-  saveQuestions(questions);
-  closeModal();
-  renderTable();
-  updateStats();
+  subjects = DB.load();
+  closeQuestionModal();
+  render();
 });
 
-/* ── Delete Question ──────────────────────────────────────── */
-function deleteQuestion(id) {
-  if (!confirm('Delete this question?')) return;
-  questions = questions.filter(q => q.id !== id);
-  saveQuestions(questions);
-  renderTable();
-  updateStats();
-  showToast('Question deleted.', 'success');
-}
-
-/* ── Render Table ─────────────────────────────────────────── */
-function renderTable() {
-  const filtered = questions.filter(q =>
-    q.text.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  if (questions.length === 0) {
-    emptyState?.classList.remove('hidden');
-    emptyState && (emptyState.style.display = 'block');
-    tableWrap?.classList.add('hidden');
-    tableWrap && (tableWrap.style.display = 'none');
-    return;
-  }
-
-  emptyState && (emptyState.style.display = 'none');
-  tableWrap && (tableWrap.style.display = 'block');
-
-  tableBody.innerHTML = filtered.map((q, i) => `
-    <tr>
-      <td style="color:var(--text-muted);width:40px">${i + 1}</td>
-      <td style="max-width:300px">
-        <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px">
-          ${escapeHtml(q.text)}
-        </div>
-      </td>
-      <td>
-        <span class="type-badge ${q.type === 'tf' ? 'tf' : 'mcq'}">
-          ${q.type === 'tf' ? 'T/F' : 'MCQ'}
-        </span>
-      </td>
-      <td>${q.answers.length}</td>
-      <td style="color:var(--correct)">${q.answers.filter(a => a.correct).length}</td>
-      <td>
-        <div class="table-actions">
-          <button class="btn btn-ghost btn-sm" onclick="openModal('${q.id}')">✏️ Edit</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteQuestion('${q.id}')">🗑️</button>
-        </div>
-      </td>
-    </tr>`).join('');
-
-  if (filtered.length === 0) {
-    tableBody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:32px">No questions match your search.</td></tr>`;
-  }
-}
-
-/* ── Stats ────────────────────────────────────────────────── */
-function updateStats() {
-  if (statTotal) statTotal.textContent = questions.length;
-  if (statMCQ)   statMCQ.textContent   = questions.filter(q => q.type === 'mcq').length;
-  if (statTF)    statTF.textContent    = questions.filter(q => q.type === 'tf').length;
-}
-
-/* ── Search ───────────────────────────────────────────────── */
-searchInput?.addEventListener('input', () => {
-  searchTerm = searchInput.value;
-  renderTable();
-});
-
-/* ── Clear All ────────────────────────────────────────────── */
-document.getElementById('btn-clear-all')?.addEventListener('click', () => {
-  if (!confirm('Delete ALL questions? This cannot be undone.')) return;
-  questions = [];
-  saveQuestions(questions);
-  renderTable();
-  updateStats();
-  showToast('All questions cleared.', 'success');
-});
-
-/* ── Import / Export ──────────────────────────────────────── */
 document.getElementById('btn-export')?.addEventListener('click', () => {
-  const json = JSON.stringify(questions, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href = url; a.download = 'quizflow-questions.json';
-  a.click(); URL.revokeObjectURL(url);
-  showToast('Exported successfully ✓', 'success');
+  const blob = new Blob([DB.exportAll()], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'quizflow-subjects.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('تم تصدير البيانات', 'success');
 });
 
 document.getElementById('btn-import')?.addEventListener('click', () => {
   const input = document.createElement('input');
-  input.type = 'file'; input.accept = '.json';
+  input.type = 'file';
+  input.accept = '.json,application/json';
   input.addEventListener('change', () => {
-    const file = input.files[0];
+    const file = input.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = e => {
+    reader.onload = event => {
       try {
-        const data = JSON.parse(e.target.result);
-        if (!Array.isArray(data)) throw new Error();
-        questions = data;
-        saveQuestions(questions);
-        renderTable();
-        updateStats();
-        showToast(`Imported ${data.length} questions ✓`, 'success');
+        DB.importAll(event.target.result);
+        subjects = DB.load();
+        currentSid = subjects[0]?.id || '';
+        currentQid = subjects[0]?.quizzes?.[0]?.id || '';
+        render();
+        showToast('تم استيراد البيانات', 'success');
       } catch {
-        showToast('Invalid JSON file.', 'error');
+        showToast('ملف JSON غير صالح', 'error');
       }
     };
     reader.readAsText(file);
@@ -332,96 +167,223 @@ document.getElementById('btn-import')?.addEventListener('click', () => {
   input.click();
 });
 
-/* ── Sample Questions ─────────────────────────────────────── */
-document.getElementById('btn-sample')?.addEventListener('click', () => {
-  if (questions.length > 0 && !confirm('This will add sample questions. Continue?')) return;
-
-  const samples = [
-    {
-      id: uid(), text: 'What does "HTML" stand for?', type: 'mcq',
-      answers: [
-        { text: 'Hyper Text Markup Language', correct: true },
-        { text: 'High Tech Machine Learning', correct: false },
-        { text: 'Home Tool Markup Language', correct: false },
-        { text: 'Hyperlink and Text Markup Language', correct: false },
-      ]
-    },
-    {
-      id: uid(), text: 'Which of the following is a JavaScript framework?', type: 'mcq',
-      answers: [
-        { text: 'Django', correct: false },
-        { text: 'Laravel', correct: false },
-        { text: 'React', correct: true },
-        { text: 'Flask', correct: false },
-      ]
-    },
-    {
-      id: uid(), text: 'CSS stands for Cascading Style Sheets.', type: 'tf',
-      answers: [
-        { text: 'True',  correct: true },
-        { text: 'False', correct: false },
-      ]
-    },
-    {
-      id: uid(), text: 'What is the time complexity of binary search?', type: 'mcq',
-      answers: [
-        { text: 'O(n)',      correct: false },
-        { text: 'O(log n)',  correct: true  },
-        { text: 'O(n²)',     correct: false },
-        { text: 'O(1)',      correct: false },
-      ]
-    },
-    {
-      id: uid(), text: 'Python is a compiled language.', type: 'tf',
-      answers: [
-        { text: 'True',  correct: false },
-        { text: 'False', correct: true  },
-      ]
-    },
-    {
-      id: uid(), text: 'Which HTTP method is used to retrieve data from a server?', type: 'mcq',
-      answers: [
-        { text: 'POST',   correct: false },
-        { text: 'PUT',    correct: false },
-        { text: 'GET',    correct: true  },
-        { text: 'DELETE', correct: false },
-      ]
-    },
-  ];
-
-  questions = [...questions, ...samples];
-  saveQuestions(questions);
-  renderTable();
-  updateStats();
-  showToast(`Added ${samples.length} sample questions ✓`, 'success');
+document.getElementById('btn-clear-all')?.addEventListener('click', () => {
+  if (!confirm('حذف كل المواد والامتحانات والأسئلة؟')) return;
+  DB.save([]);
+  subjects = [];
+  currentSid = '';
+  currentQid = '';
+  render();
+  showToast('تم حذف كل البيانات', 'success');
 });
 
-/* ── Toast ────────────────────────────────────────────────── */
-function showToast(msg, type = 'info') {
-  const container = document.getElementById('toast-container');
-  if (!container) return;
-  const t = document.createElement('div');
-  t.className = `toast ${type}`;
-  const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️';
-  t.textContent = `${icon} ${msg}`;
-  container.appendChild(t);
-  setTimeout(() => t.remove(), 3500);
+function render() {
+  normalizeSelection();
+  renderSelectors();
+  renderStats();
+
+  const subject = getCurrentSubject();
+  const quiz = getCurrentQuiz();
+  const hasQuiz = Boolean(subject && quiz);
+
+  emptyState.style.display = hasQuiz ? 'none' : 'block';
+  questionPanel.style.display = hasQuiz ? 'block' : 'none';
+
+  if (!hasQuiz) return;
+
+  currentTitle.textContent = `${subject.name} - ${quiz.title}`;
+  renderQuestions(quiz.questions || []);
 }
 
-/* ── Utils ────────────────────────────────────────────────── */
-function uid() {
-  return crypto.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2);
+function normalizeSelection() {
+  if (!subjects.some(subject => subject.id === currentSid)) {
+    currentSid = subjects[0]?.id || '';
+  }
+
+  const subject = getCurrentSubject();
+  if (!subject?.quizzes?.some(quiz => quiz.id === currentQid)) {
+    currentQid = subject?.quizzes?.[0]?.id || '';
+  }
 }
 
-function escapeHtml(str = '') {
-  return String(str)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+function renderSelectors() {
+  subjectSelect.innerHTML = subjects.length
+    ? subjects.map(subject => `<option value="${subject.id}">${escHtml(subject.name)}</option>`).join('')
+    : '<option value="">لا توجد مواد</option>';
+  subjectSelect.value = currentSid;
+
+  const quizzes = getCurrentSubject()?.quizzes || [];
+  quizSelect.innerHTML = quizzes.length
+    ? quizzes.map(quiz => `<option value="${quiz.id}">${escHtml(quiz.title)}</option>`).join('')
+    : '<option value="">لا توجد امتحانات</option>';
+  quizSelect.value = currentQid;
 }
 
-/* ── Expose for inline onclick ────────────────────────────── */
-window.openModal = openModal;
-window.deleteQuestion = deleteQuestion;
+function renderStats() {
+  const quizCount = subjects.reduce((sum, subject) => sum + (subject.quizzes?.length || 0), 0);
+  const questionCount = subjects.reduce((sum, subject) => (
+    sum + (subject.quizzes || []).reduce((qSum, quiz) => qSum + (quiz.questions?.length || 0), 0)
+  ), 0);
 
-/* ── Bootstrap ────────────────────────────────────────────── */
-document.addEventListener('DOMContentLoaded', init);
+  statSubjects.textContent = subjects.length;
+  statQuizzes.textContent = quizCount;
+  statQuestions.textContent = questionCount;
+}
+
+function renderQuestions(questions) {
+  if (!questions.length) {
+    tableBody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:32px">لا توجد أسئلة في هذا الامتحان بعد.</td></tr>';
+    return;
+  }
+
+  tableBody.innerHTML = questions.map((question, index) => {
+    const correct = (question.answers || []).filter(answer => answer.correct).map(answer => answer.text).join('، ');
+    return `
+      <tr>
+        <td>${index + 1}</td>
+        <td style="max-width:320px">${escHtml(question.text)}</td>
+        <td>${typeLabel(question.type)}</td>
+        <td>${question.answers?.length || 0}</td>
+        <td style="color:var(--correct)">${escHtml(correct)}</td>
+        <td>
+          <div class="table-actions">
+            <button class="btn btn-ghost btn-sm" onclick="openQuestionModal('${question.id}')">تعديل</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteQuestionFromQuiz('${question.id}')">حذف</button>
+          </div>
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+function openQuestionModal(questionId = null) {
+  const quiz = getCurrentQuiz();
+  if (!quiz) return;
+
+  editingQuestionId = questionId;
+  modalTitle.textContent = questionId ? 'تعديل سؤال' : 'إضافة سؤال';
+
+  const question = quiz.questions?.find(item => item.id === questionId);
+  qText.value = question?.text || '';
+  qType.value = question?.type || 'mcq';
+
+  if (question) {
+    renderAnswerRows(question.answers || [], question.type === 'tf');
+  } else {
+    renderAnswerRows([
+      { text: '', correct: false },
+      { text: '', correct: false },
+    ]);
+  }
+
+  modal.style.display = 'flex';
+  qText.focus();
+}
+
+function closeQuestionModal() {
+  modal.style.display = 'none';
+  editingQuestionId = null;
+}
+
+function renderAnswerRows(answers, readonly = false) {
+  answerList.innerHTML = '';
+  answers.forEach(answer => addAnswerRow(answer, readonly));
+  btnAddAnswer.style.display = qType.value === 'tf' ? 'none' : '';
+}
+
+function addAnswerRow(answer = { text: '', correct: false }, readonly = false) {
+  const row = document.createElement('div');
+  row.className = `answer-row ${answer.correct ? 'is-correct' : ''}`;
+  row.innerHTML = `
+    <input type="text" class="answer-text" placeholder="الخيار" value="${escHtml(answer.text)}" ${readonly ? 'readonly' : ''}>
+    <label class="answer-correct-label" title="إجابة صحيحة">✓</label>
+    <input type="checkbox" class="answer-correct-check" title="إجابة صحيحة" ${answer.correct ? 'checked' : ''}>
+    ${readonly ? '' : '<button class="answer-remove" title="حذف">×</button>'}`;
+
+  const checkbox = row.querySelector('.answer-correct-check');
+  checkbox.addEventListener('change', () => {
+    if (qType.value === 'mcq' || qType.value === 'tf') {
+      answerList.querySelectorAll('.answer-correct-check').forEach(item => {
+        if (item !== checkbox) {
+          item.checked = false;
+          item.closest('.answer-row').classList.remove('is-correct');
+        }
+      });
+    }
+    row.classList.toggle('is-correct', checkbox.checked);
+  });
+
+  row.querySelector('.answer-remove')?.addEventListener('click', () => row.remove());
+  answerList.appendChild(row);
+}
+
+function buildQuestionFromForm() {
+  const text = qText.value.trim();
+  if (!text) {
+    showToast('اكتب نص السؤال', 'error');
+    return null;
+  }
+
+  const rows = [...answerList.querySelectorAll('.answer-row')];
+  const answers = rows.map(row => ({
+    text: row.querySelector('.answer-text').value.trim(),
+    correct: row.querySelector('.answer-correct-check').checked,
+  }));
+
+  if (answers.length < 2 || answers.some(answer => !answer.text)) {
+    showToast('أدخل خيارين على الأقل', 'error');
+    return null;
+  }
+
+  const correctCount = answers.filter(answer => answer.correct).length;
+  if (correctCount === 0) {
+    showToast('حدد إجابة صحيحة واحدة على الأقل', 'error');
+    return null;
+  }
+
+  if ((qType.value === 'mcq' || qType.value === 'tf') && correctCount !== 1) {
+    showToast('هذا النوع يحتاج إجابة صحيحة واحدة فقط', 'error');
+    return null;
+  }
+
+  return { text, type: qType.value, answers };
+}
+
+function deleteQuestionFromQuiz(questionId) {
+  const subject = getCurrentSubject();
+  const quiz = getCurrentQuiz();
+  if (!subject || !quiz || !confirm('حذف هذا السؤال؟')) return;
+  DB.deleteQuestion(subject.id, quiz.id, questionId);
+  subjects = DB.load();
+  render();
+  showToast('تم حذف السؤال', 'success');
+}
+
+function ensureSubject() {
+  const subject = getCurrentSubject();
+  if (subject) return subject;
+
+  const name = prompt('لا توجد مادة بعد. اكتب اسم المادة أولاً:');
+  if (!name?.trim()) return null;
+
+  const created = DB.addSubject(name);
+  subjects = DB.load();
+  currentSid = created.id;
+  return created;
+}
+
+function getCurrentSubject() {
+  return subjects.find(subject => subject.id === currentSid) || null;
+}
+
+function getCurrentQuiz() {
+  return getCurrentSubject()?.quizzes?.find(quiz => quiz.id === currentQid) || null;
+}
+
+function typeLabel(type) {
+  if (type === 'tf') return 'صح / خطأ';
+  if (type === 'multi') return 'اختيارات متعددة';
+  return 'اختيار واحد';
+}
+
+window.openQuestionModal = openQuestionModal;
+window.deleteQuestionFromQuiz = deleteQuestionFromQuiz;
