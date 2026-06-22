@@ -138,27 +138,52 @@ const DB = {
 };
 
 function normalizeSubjectData(data) {
-  // HZTA: Strict Schema Enforcement (Fail-Close).
-  // الرفض القاطع: إذا لم تكن مصفوفة، يتم تصفير كل شيء فوراً
   if (!Array.isArray(data)) return { changed: true, subjects: [] };
 
-  // قبول البيانات المطابقة بدقة متناهية فقط، وإسقاط أي بيانات عشوائية أو قديمة بدون ترقيع
-  const subjects = data
-    .filter(subject => subject && typeof subject.name === 'string' && subject.name.trim() !== '' && Array.isArray(subject.quizzes))
-    .map(subject => ({
-      id: subject.id || uid(),
-      name: subject.name.trim(),
-      quizzes: subject.quizzes
-        .filter(quiz => quiz && typeof quiz.title === 'string' && quiz.title.trim() !== '' && Array.isArray(quiz.questions))
-        .map(quiz => ({
-          id: quiz.id || uid(),
-          title: quiz.title.trim(),
-          questions: quiz.questions.filter(isQuestion).map(normalizeQuestion),
-        })),
-    }));
+  let changed = false;
 
-  // إذا تم إسقاط بيانات غير صالحة، نبلغ النظام بتحديث الذاكرة بالنسخة النظيفة
-  return { changed: subjects.length !== data.length, subjects };
+  const subjects = data
+    .filter(subject => {
+      const ok = subject && typeof subject.name === 'string' && subject.name.trim() !== '' && Array.isArray(subject.quizzes);
+      if (!ok) changed = true;
+      return ok;
+    })
+    .map(subject => {
+      if (!subject.id) changed = true;
+
+      const quizzes = subject.quizzes
+        .filter(quiz => {
+          const ok = quiz && typeof quiz.title === 'string' && quiz.title.trim() !== '' && Array.isArray(quiz.questions);
+          if (!ok) changed = true;
+          return ok;
+        })
+        .map(quiz => {
+          if (!quiz.id) changed = true;
+
+          const questions = quiz.questions.filter(q => {
+            const ok = isQuestion(q);
+            if (!ok) changed = true;
+            return ok;
+          }).map(q => {
+            if (!q.id) changed = true;
+            return normalizeQuestion(q);
+          });
+
+          return {
+            id: quiz.id || uid(),
+            title: quiz.title.trim(),
+            questions,
+          };
+        });
+
+      return {
+        id: subject.id || uid(),
+        name: subject.name.trim(),
+        quizzes,
+      };
+    });
+
+  return { changed, subjects };
 }
 
 function isQuestionList(data) {
