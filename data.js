@@ -137,39 +137,27 @@ const DB = {
   }
 };
 
-// HZTA Fix: Data isolation and explicit labeling. No hardcoded specific names.
 function normalizeSubjectData(data) {
-  if (isQuestionList(data)) {
-    return {
-      changed: true,
-      subjects: [{
-        id: uid(),
-        name: 'بيانات قديمة (مستردة - تتطلب مراجعة)',
-        quizzes: [{
-          id: uid(),
-          title: 'أسئلة النظام القديم',
-          questions: data.map(normalizeQuestion),
-        }],
-      }],
-    };
-  }
-
+  // HZTA: Strict Schema Enforcement (Fail-Close).
+  // الرفض القاطع: إذا لم تكن مصفوفة، يتم تصفير كل شيء فوراً
   if (!Array.isArray(data)) return { changed: true, subjects: [] };
 
+  // قبول البيانات المطابقة بدقة متناهية فقط، وإسقاط أي بيانات عشوائية أو قديمة بدون ترقيع
   const subjects = data
-    .filter(subject => subject && typeof subject.name === 'string' && Array.isArray(subject.quizzes))
+    .filter(subject => subject && typeof subject.name === 'string' && subject.name.trim() !== '' && Array.isArray(subject.quizzes))
     .map(subject => ({
       id: subject.id || uid(),
-      name: subject.name.trim() || 'مادة بدون اسم',
+      name: subject.name.trim(),
       quizzes: subject.quizzes
-        .filter(quiz => quiz && typeof quiz.title === 'string' && Array.isArray(quiz.questions))
+        .filter(quiz => quiz && typeof quiz.title === 'string' && quiz.title.trim() !== '' && Array.isArray(quiz.questions))
         .map(quiz => ({
           id: quiz.id || uid(),
-          title: quiz.title.trim() || 'امتحان بدون عنوان',
+          title: quiz.title.trim(),
           questions: quiz.questions.filter(isQuestion).map(normalizeQuestion),
         })),
     }));
 
+  // إذا تم إسقاط بيانات غير صالحة، نبلغ النظام بتحديث الذاكرة بالنسخة النظيفة
   return { changed: subjects.length !== data.length, subjects };
 }
 
