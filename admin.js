@@ -123,24 +123,23 @@ quizSelect?.addEventListener('change', () => {
 document.getElementById('btn-open-question-modal')?.addEventListener('click', () => openQuestionModal());
 document.getElementById('modal-close')?.addEventListener('click', closeQuestionModal);
 document.getElementById('btn-cancel-q')?.addEventListener('click', closeQuestionModal);
+
 modal?.addEventListener('click', event => {
   if (event.target === modal) closeQuestionModal();
 });
 
+// HZTA Fix: Protected State Transition
 qType?.addEventListener('change', (e) => {
-  // HZTA: Protect uncommitted state. Check if there are user inputs before destroying UI state.
   const currentInputs = [...answerList.querySelectorAll('.answer-text')];
   const hasUnsavedData = currentInputs.some(input => input.value.trim() !== '' && !input.readOnly);
 
   if (hasUnsavedData) {
     if (!confirm('تنبيه: تغيير نوع السؤال سيؤدي إلى مسح الخيارات التي كتبتها. هل أنت متأكد؟')) {
-      // Rollback to previous valid state
       e.target.value = e.target.dataset.prevValue || 'mcq';
       return;
     }
   }
   
-  // Update state tracker
   e.target.dataset.prevValue = e.target.value;
 
   if (qType.value === 'tf') {
@@ -212,8 +211,8 @@ document.getElementById('btn-import')?.addEventListener('click', () => {
         normalizeSelection();
         render();
         showToast('تم استيراد البيانات', 'success');
-      } catch {
-        showToast('ملف JSON غير صالح أو غير متوافق', 'error');
+      } catch (err) {
+        showToast(err.message || 'ملف JSON غير صالح أو غير متوافق', 'error');
       }
     };
     reader.readAsText(file);
@@ -242,7 +241,6 @@ function render() {
 
   emptyState.style.display = hasQuiz ? 'none' : 'block';
   questionPanel.style.display = hasQuiz ? 'block' : 'none';
-
   if (!hasQuiz) return;
 
   currentTitle.textContent = `${subject.name} - ${quiz.title}`;
@@ -278,7 +276,6 @@ function renderStats() {
   const questionCount = subjects.reduce((sum, subject) => (
     sum + (subject.quizzes || []).reduce((qSum, quiz) => qSum + (quiz.questions?.length || 0), 0)
   ), 0);
-
   statSubjects.textContent = subjects.length;
   statQuizzes.textContent = quizCount;
   statQuestions.textContent = questionCount;
@@ -319,6 +316,8 @@ function openQuestionModal(questionId = null) {
   const question = quiz.questions?.find(item => item.id === questionId);
   qText.value = question?.text || '';
   qType.value = question?.type || 'mcq';
+  
+  // HZTA Fix: Bind state tracker on open
   qType.dataset.prevValue = question?.type || 'mcq';
 
   if (question) {
@@ -366,11 +365,11 @@ function addAnswerRow(answer = { text: '', correct: false }, readonly = false) {
     }
     row.classList.toggle('is-correct', checkbox.checked);
   });
-
   row.querySelector('.answer-remove')?.addEventListener('click', () => row.remove());
   answerList.appendChild(row);
 }
 
+// HZTA Fix: Strict layered validation
 function buildQuestionFromForm() {
   const text = qText.value.trim();
   if (!text) {
@@ -384,7 +383,6 @@ function buildQuestionFromForm() {
     correct: row.querySelector('.answer-correct-check').checked,
   }));
 
-  // HZTA: Layered, highly specific boundary validation
   if (answers.length < 2) {
     showToast('خطأ: يجب توفير خيارين على الأقل.', 'error');
     return null;
@@ -409,6 +407,7 @@ function buildQuestionFromForm() {
   return { text, type: qType.value, answers };
 }
 
+// HZTA Fix: Prevent Hijacking
 function importAdminJson(json, fileName = '') {
   const data = JSON.parse(json);
 
@@ -434,7 +433,6 @@ function importFlatQuestionList(data, fileName, subjectName, quizTitle) {
   const cleanQuestions = data.map(normalizeImportedQuestion);
   const allSubjects = DB.load();
 
-  // HZTA: Explicit target resolution. Remove silent fallback to selectedSubject.
   const nextSubjectName = (subjectName || prompt('اسم المادة المراد استيراد الأسئلة إليها:', 'مادة مستوردة') || '').trim();
   if (!nextSubjectName) throw new Error('تم إلغاء الاستيراد: لم يتم تحديد مادة');
 
@@ -473,6 +471,7 @@ function normalizeImportedQuestion(question) {
   }
 
   const type = ['mcq', 'tf', 'multi'].includes(question.type) ? question.type : 'mcq';
+
   return {
     id: uid(),
     text: String(question.text).trim(),
@@ -513,7 +512,6 @@ function deleteQuestionFromQuiz(questionId) {
 function ensureSubject() {
   const subject = getCurrentSubject();
   if (subject) return subject;
-
   const name = prompt('لا توجد مادة بعد. اكتب اسم المادة أولاً:');
   if (!name?.trim()) return null;
 
