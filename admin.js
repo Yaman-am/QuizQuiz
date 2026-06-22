@@ -152,14 +152,20 @@ document.getElementById('btn-import')?.addEventListener('click', () => {
     const reader = new FileReader();
     reader.onload = event => {
       try {
-        DB.importAll(event.target.result);
+        importAdminJson(event.target.result, file.name);
         subjects = DB.load();
-        currentSid = subjects[0]?.id || '';
-        currentQid = subjects[0]?.quizzes?.[0]?.id || '';
+        if (!subjects.some(subject => subject.id === currentSid)) {
+          currentSid = subjects[0]?.id || '';
+        }
+        const selectedSubject = subjects.find(subject => subject.id === currentSid);
+        if (!selectedSubject?.quizzes?.some(quiz => quiz.id === currentQid)) {
+          currentQid = selectedSubject?.quizzes?.[0]?.id || '';
+        }
+        normalizeSelection();
         render();
         showToast('تم استيراد البيانات', 'success');
       } catch {
-        showToast('ملف JSON غير صالح', 'error');
+        showToast('ملف JSON غير صالح أو غير متوافق', 'error');
       }
     };
     reader.readAsText(file);
@@ -346,6 +352,98 @@ function buildQuestionFromForm() {
   }
 
   return { text, type: qType.value, answers };
+}
+
+function importAdminJson(json, fileName = '') {
+  const data = JSON.parse(json);
+
+  if (isSubjectList(data)) {
+    DB.importAll(json);
+    return;
+  }
+
+  if (isQuestionList(data)) {
+    importFlatQuestionList(data, fileName);
+    return;
+  }
+
+  if (data && isQuestionList(data.questions)) {
+    importFlatQuestionList(data.questions, fileName, data.subject, data.title);
+    return;
+  }
+
+  throw new Error('Unsupported import format');
+}
+
+function importFlatQuestionList(data, fileName, subjectName, quizTitle) {
+  const cleanQuestions = data.map(normalizeImportedQuestion);
+  const allSubjects = DB.load();
+  const selectedSubject = allSubjects.find(subject => subject.id === currentSid);
+
+  const nextSubjectName = (subjectName || selectedSubject?.name || prompt('اسم المادة:', 'المحاكاة والنمذجة') || '').trim();
+  if (!nextSubjectName) throw new Error('Missing subject');
+
+  const defaultTitle = quizTitle || titleFromFileName(fileName) || 'امتحان جديد';
+  const nextQuizTitle = (quizTitle || prompt('عنوان الامتحان:', defaultTitle) || '').trim();
+  if (!nextQuizTitle) throw new Error('Missing quiz title');
+
+  let subject = allSubjects.find(item => item.id === currentSid) ||
+    allSubjects.find(item => item.name === nextSubjectName);
+
+  if (!subject) {
+    subject = { id: uid(), name: nextSubjectName, quizzes: [] };
+    allSubjects.push(subject);
+  }
+
+  const quiz = { id: uid(), title: nextQuizTitle, questions: cleanQuestions };
+  subject.quizzes = subject.quizzes || [];
+  subject.quizzes.push(quiz);
+
+  DB.save(allSubjects);
+  currentSid = subject.id;
+  currentQid = quiz.id;
+}
+
+function normalizeImportedQuestion(question) {
+  if (!question?.text || !Array.isArray(question.answers)) {
+    throw new Error('Invalid question');
+  }
+
+  const answers = question.answers.map(answer => ({
+    text: String(answer.text || '').trim(),
+    correct: Boolean(answer.correct),
+  }));
+
+  if (answers.length < 2 || answers.some(answer => !answer.text) || !answers.some(answer => answer.correct)) {
+    throw new Error('Invalid answers');
+  }
+
+  const type = ['mcq', 'tf', 'multi'].includes(question.type) ? question.type : 'mcq';
+  return {
+    id: uid(),
+    text: String(question.text).trim(),
+    type,
+    answers,
+  };
+}
+
+function isSubjectList(data) {
+  return Array.isArray(data) && data.every(item =>
+    item && typeof item.name === 'string' && Array.isArray(item.quizzes)
+  );
+}
+
+function isQuestionList(data) {
+  return Array.isArray(data) && data.every(item =>
+    item && typeof item.text === 'string' && Array.isArray(item.answers)
+  );
+}
+
+function titleFromFileName(fileName) {
+  return String(fileName || '')
+    .replace(/\.json$/i, '')
+    .replace(/[-_]+/g, ' ')
+    .trim();
 }
 
 function deleteQuestionFromQuiz(questionId) {
