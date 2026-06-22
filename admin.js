@@ -1,295 +1,541 @@
-/* ============================================================
-   QuizFlow v2 — data.js
-   Shared storage layer used by all pages
-   ============================================================
-
-   DATA STRUCTURE:
-   ---------------
-   localStorage key: "qf_subjects"
-   Value: array of Subject objects
-
-   Subject {
-     id:      string       — unique id
-     name:    string       — e.g. "المحاكاة والنمذجة"
-     quizzes: Quiz[]
-   }
-
-   Quiz {
-     id:      string       — unique id
-     title:   string       — e.g. "اختبار الفصل الأول"
-     questions: Question[]
-   }
-
-   Question {
-     id:      string
-     text:    string
-     type:    "mcq" | "tf" | "multi"
-     answers: Answer[]
-     // mcq   → exactly one answer has correct:true
-     // tf    → two answers "صح"/"خطأ", one correct
-     // multi → one or more answers have correct:true
-   }
-
-   Answer {
-     text:    string
-     correct: boolean
-   }
-   ============================================================ */
-
 'use strict';
 
-const QF_KEY = 'qf_subjects';
+let subjects = [];
+let currentSid = '';
+let currentQid = '';
+let editingQuestionId = null;
 
-const DB = {
-  load() {
-    try {
-      const data = JSON.parse(localStorage.getItem(QF_KEY) || '[]');
-      const normalized = normalizeSubjectData(data);
-      if (normalized.changed) this.save(normalized.subjects);
-      return normalized.subjects;
+const subjectSelect = document.getElementById('subject-select');
+const quizSelect = document.getElementById('quiz-select');
+const emptyState = document.getElementById('empty-state');
+const questionPanel = document.getElementById('question-panel');
+const currentTitle = document.getElementById('current-title');
+const tableBody = document.getElementById('q-table-body');
+
+const statSubjects = document.getElementById('stat-subjects');
+const statQuizzes = document.getElementById('stat-quizzes');
+const statQuestions = document.getElementById('stat-questions');
+
+const modal = document.getElementById('question-modal');
+const modalTitle = document.getElementById('modal-title');
+const qText = document.getElementById('q-text');
+const qType = document.getElementById('q-type');
+const answerList = document.getElementById('answer-list');
+const btnAddAnswer = document.getElementById('btn-add-answer');
+
+document.addEventListener('DOMContentLoaded', () => {
+  initTheme('theme-toggle');
+  subjects = DB.load();
+  render();
+});
+
+document.getElementById('btn-add-subject')?.addEventListener('click', () => {
+  const name = prompt('اسم المادة:');
+  if (!name?.trim()) return;
+  const subject = DB.addSubject(name);
+  currentSid = subject.id;
+  subjects = DB.load();
+  render();
+  showToast('تمت إضافة المادة', 'success');
+});
+
+document.getElementById('btn-edit-subject')?.addEventListener('click', () => {
+  const subject = getCurrentSubject();
+  if (!subject) return;
+  const name = prompt('اسم المادة:', subject.name);
+  if (!name?.trim()) return;
+  DB.updateSubject(subject.id, name);
+  subjects = DB.load();
+  render();
+  showToast('تم تعديل المادة', 'success');
+});
+
+document.getElementById('btn-delete-subject')?.addEventListener('click', () => {
+  const subject = getCurrentSubject();
+  if (!subject) return;
+
+  const quizCount = subject.quizzes?.length || 0;
+  const message = `حذف المادة "${subject.name}"؟ سيتم حذف ${quizCount} امتحان وكل أسئلتها.`;
+  if (!confirm(message)) return;
+
+  DB.deleteSubject(subject.id);
+  subjects = DB.load();
+  currentSid = subjects[0]?.id || '';
+  currentQid = subjects[0]?.quizzes?.[0]?.id || '';
+  render();
+  showToast('تم حذف المادة', 'success');
+});
+
+document.getElementById('btn-add-quiz')?.addEventListener('click', () => {
+  const subject = ensureSubject();
+  if (!subject) return;
+  const title = prompt('عنوان الامتحان:');
+  if (!title?.trim()) return;
+  const quiz = DB.addQuiz(subject.id, title);
+  currentSid = subject.id;
+  currentQid = quiz.id;
+  subjects = DB.load();
+  render();
+  showToast('تمت إضافة الامتحان', 'success');
+});
+
+document.getElementById('btn-edit-quiz')?.addEventListener('click', () => {
+  const subject = getCurrentSubject();
+  const quiz = getCurrentQuiz();
+  if (!subject || !quiz) return;
+  const title = prompt('عنوان الامتحان:', quiz.title);
+  if (!title?.trim()) return;
+  DB.updateQuiz(subject.id, quiz.id, title);
+  subjects = DB.load();
+  render();
+  showToast('تم تعديل الامتحان', 'success');
+});
+
+document.getElementById('btn-delete-quiz')?.addEventListener('click', () => {
+  const subject = getCurrentSubject();
+  const quiz = getCurrentQuiz();
+  if (!subject || !quiz) return;
+
+  const questionCount = quiz.questions?.length || 0;
+  const message = `حذف الامتحان "${quiz.title}"؟ سيتم حذف ${questionCount} سؤال.`;
+  if (!confirm(message)) return;
+
+  DB.deleteQuiz(subject.id, quiz.id);
+  subjects = DB.load();
+  const refreshedSubject = getCurrentSubject();
+  currentQid = refreshedSubject?.quizzes?.[0]?.id || '';
+  render();
+  showToast('تم حذف الامتحان', 'success');
+});
+
+subjectSelect?.addEventListener('change', () => {
+  currentSid = subjectSelect.value;
+  const subject = getCurrentSubject();
+  currentQid = subject?.quizzes?.[0]?.id || '';
+  render();
+});
+
+quizSelect?.addEventListener('change', () => {
+  currentQid = quizSelect.value;
+  render();
+});
+
+document.getElementById('btn-open-question-modal')?.addEventListener('click', () => openQuestionModal());
+document.getElementById('modal-close')?.addEventListener('click', closeQuestionModal);
+document.getElementById('btn-cancel-q')?.addEventListener('click', closeQuestionModal);
+modal?.addEventListener('click', event => {
+  if (event.target === modal) closeQuestionModal();
+});
+
+qType?.addEventListener('change', (e) => {
+  // HZTA: Protect uncommitted state. Check if there are user inputs before destroying UI state.
+  const currentInputs = [...answerList.querySelectorAll('.answer-text')];
+  const hasUnsavedData = currentInputs.some(input => input.value.trim() !== '' && !input.readOnly);
+
+  if (hasUnsavedData) {
+    if (!confirm('تنبيه: تغيير نوع السؤال سيؤدي إلى مسح الخيارات التي كتبتها. هل أنت متأكد؟')) {
+      // Rollback to previous valid state
+      e.target.value = e.target.dataset.prevValue || 'mcq';
+      return;
     }
-    catch { return []; }
-  },
-
-  save(subjects) {
-    localStorage.setItem(QF_KEY, JSON.stringify(subjects));
-  },
-
-  // Returns only subjects that have at least one quiz
-  getPublic() {
-    return this.load().filter(s => s.quizzes && s.quizzes.length > 0);
-  },
-
-  getSubject(sid) {
-    return this.load().find(s => s.id === sid) || null;
-  },
-
-  getQuiz(sid, qid) {
-    const s = this.getSubject(sid);
-    return s ? (s.quizzes.find(q => q.id === qid) || null) : null;
-  },
-
-  // ── Subjects ──────────────────────────────────────────────
-  addSubject(name) {
-    const subjects = this.load();
-    const s = { id: uid(), name: name.trim(), quizzes: [] };
-    subjects.push(s);
-    this.save(subjects);
-    return s;
-  },
-
-  updateSubject(sid, name) {
-    const subjects = this.load();
-    const s = subjects.find(x => x.id === sid);
-    if (s) { s.name = name.trim(); this.save(subjects); }
-  },
-
-  deleteSubject(sid) {
-    const subjects = this.load().filter(s => s.id !== sid);
-    this.save(subjects);
-  },
-
-  // ── Quizzes ───────────────────────────────────────────────
-  addQuiz(sid, title) {
-    const subjects = this.load();
-    const s = subjects.find(x => x.id === sid);
-    if (!s) return null;
-    const q = { id: uid(), title: title.trim(), questions: [] };
-    s.quizzes.push(q);
-    this.save(subjects);
-    return q;
-  },
-
-  updateQuiz(sid, qid, title) {
-    const subjects = this.load();
-    const s = subjects.find(x => x.id === sid);
-    if (!s) return;
-    const q = s.quizzes.find(x => x.id === qid);
-    if (q) { q.title = title.trim(); this.save(subjects); }
-  },
-
-  deleteQuiz(sid, qid) {
-    const subjects = this.load();
-    const s = subjects.find(x => x.id === sid);
-    if (!s) return;
-    s.quizzes = s.quizzes.filter(q => q.id !== qid);
-    this.save(subjects);
-  },
-
-  // ── Questions ─────────────────────────────────────────────
-  addQuestion(sid, qid, question) {
-    const subjects = this.load();
-    const s = subjects.find(x => x.id === sid);
-    if (!s) return;
-    const q = s.quizzes.find(x => x.id === qid);
-    if (!q) return;
-    q.questions.push({ id: uid(), ...question });
-    this.save(subjects);
-  },
-
-  updateQuestion(sid, qid, questionId, question) {
-    const subjects = this.load();
-    const s = subjects.find(x => x.id === sid);
-    if (!s) return;
-    const q = s.quizzes.find(x => x.id === qid);
-    if (!q) return;
-    const idx = q.questions.findIndex(x => x.id === questionId);
-    if (idx !== -1) { q.questions[idx] = { id: questionId, ...question }; this.save(subjects); }
-  },
-
-  deleteQuestion(sid, qid, questionId) {
-    const subjects = this.load();
-    const s = subjects.find(x => x.id === sid);
-    if (!s) return;
-    const q = s.quizzes.find(x => x.id === qid);
-    if (!q) return;
-    q.questions = q.questions.filter(x => x.id !== questionId);
-    this.save(subjects);
-  },
-
-  // ── Import / Export ───────────────────────────────────────
-  exportAll() {
-    return JSON.stringify(this.load(), null, 2);
-  },
-
-  importAll(json) {
-    const data = JSON.parse(json);
-    const normalized = normalizeSubjectData(data);
-    if (!Array.isArray(data) || normalized.subjects.length === 0) throw new Error('Invalid format');
-    this.save(normalized.subjects);
-    return normalized.subjects;
-  },
-
-  // Import a single quiz's questions from the old flat JSON format
-  importQuizQuestions(sid, qid, json) {
-    const questions = JSON.parse(json);
-    if (!isQuestionList(questions)) throw new Error('Invalid format');
-    const subjects = this.load();
-    const s = subjects.find(x => x.id === sid);
-    if (!s) return 0;
-    const q = s.quizzes.find(x => x.id === qid);
-    if (!q) return 0;
-    questions.forEach(question => {
-      q.questions.push(normalizeQuestion(question));
-    });
-    this.save(subjects);
-    return questions.length;
   }
-};
+  
+  // Update state tracker
+  e.target.dataset.prevValue = e.target.value;
 
-function normalizeSubjectData(data) {
-  // HZTA: Data isolation and explicit labeling. No hardcoded specific names.
-  if (isQuestionList(data)) {
-    return {
-      changed: true,
-      subjects: [{
-        id: uid(),
-        name: 'بيانات قديمة (مستردة - تتطلب مراجعة)', 
-        quizzes: [{
-          id: uid(),
-          title: 'أسئلة النظام القديم',
-          questions: data.map(normalizeQuestion),
-        }],
-      }],
+  if (qType.value === 'tf') {
+    renderAnswerRows([
+      { text: 'صح', correct: true },
+      { text: 'خطأ', correct: false },
+    ], true);
+  } else {
+    renderAnswerRows([
+      { text: '', correct: false },
+      { text: '', correct: false },
+    ]);
+  }
+});
+
+btnAddAnswer?.addEventListener('click', () => addAnswerRow());
+
+document.getElementById('btn-save-q')?.addEventListener('click', () => {
+  const subject = getCurrentSubject();
+  const quiz = getCurrentQuiz();
+  if (!subject || !quiz) return;
+
+  const question = buildQuestionFromForm();
+  if (!question) return;
+
+  if (editingQuestionId) {
+    DB.updateQuestion(subject.id, quiz.id, editingQuestionId, question);
+    showToast('تم تعديل السؤال', 'success');
+  } else {
+    DB.addQuestion(subject.id, quiz.id, question);
+    showToast('تمت إضافة السؤال', 'success');
+  }
+
+  subjects = DB.load();
+  closeQuestionModal();
+  render();
+});
+
+document.getElementById('btn-export')?.addEventListener('click', () => {
+  const blob = new Blob([DB.exportAll()], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'quizflow-subjects.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('تم تصدير البيانات', 'success');
+});
+
+document.getElementById('btn-import')?.addEventListener('click', () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json,application/json';
+  input.addEventListener('change', () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = event => {
+      try {
+        importAdminJson(event.target.result, file.name);
+        subjects = DB.load();
+        if (!subjects.some(subject => subject.id === currentSid)) {
+          currentSid = subjects[0]?.id || '';
+        }
+        const selectedSubject = subjects.find(subject => subject.id === currentSid);
+        if (!selectedSubject?.quizzes?.some(quiz => quiz.id === currentQid)) {
+          currentQid = selectedSubject?.quizzes?.[0]?.id || '';
+        }
+        normalizeSelection();
+        render();
+        showToast('تم استيراد البيانات', 'success');
+      } catch {
+        showToast('ملف JSON غير صالح أو غير متوافق', 'error');
+      }
     };
+    reader.readAsText(file);
+  });
+  input.click();
+});
+
+document.getElementById('btn-clear-all')?.addEventListener('click', () => {
+  if (!confirm('حذف كل المواد والامتحانات والأسئلة؟')) return;
+  DB.save([]);
+  subjects = [];
+  currentSid = '';
+  currentQid = '';
+  render();
+  showToast('تم حذف كل البيانات', 'success');
+});
+
+function render() {
+  normalizeSelection();
+  renderSelectors();
+  renderStats();
+
+  const subject = getCurrentSubject();
+  const quiz = getCurrentQuiz();
+  const hasQuiz = Boolean(subject && quiz);
+
+  emptyState.style.display = hasQuiz ? 'none' : 'block';
+  questionPanel.style.display = hasQuiz ? 'block' : 'none';
+
+  if (!hasQuiz) return;
+
+  currentTitle.textContent = `${subject.name} - ${quiz.title}`;
+  renderQuestions(quiz.questions || []);
+}
+
+function normalizeSelection() {
+  if (!subjects.some(subject => subject.id === currentSid)) {
+    currentSid = subjects[0]?.id || '';
   }
 
-  if (!Array.isArray(data)) return { changed: true, subjects: [] };
-
-  const subjects = data
-    .filter(subject => subject && typeof subject.name === 'string' && Array.isArray(subject.quizzes))
-    .map(subject => ({
-      id: subject.id || uid(),
-      name: subject.name.trim() || 'مادة بدون اسم',
-      quizzes: subject.quizzes
-        .filter(quiz => quiz && typeof quiz.title === 'string' && Array.isArray(quiz.questions))
-        .map(quiz => ({
-          id: quiz.id || uid(),
-          title: quiz.title.trim() || 'امتحان بدون عنوان',
-          questions: quiz.questions.filter(isQuestion).map(normalizeQuestion),
-        })),
-    }));
-
-  return { changed: subjects.length !== data.length, subjects };
+  const subject = getCurrentSubject();
+  if (!subject?.quizzes?.some(quiz => quiz.id === currentQid)) {
+    currentQid = subject?.quizzes?.[0]?.id || '';
+  }
 }
 
-function isQuestionList(data) {
-  return Array.isArray(data) && data.length > 0 && data.every(isQuestion);
+function renderSelectors() {
+  subjectSelect.innerHTML = subjects.length
+    ? subjects.map(subject => `<option value="${subject.id}">${escHtml(subject.name)}</option>`).join('')
+    : '<option value="">لا توجد مواد</option>';
+  subjectSelect.value = currentSid;
+
+  const quizzes = getCurrentSubject()?.quizzes || [];
+  quizSelect.innerHTML = quizzes.length
+    ? quizzes.map(quiz => `<option value="${quiz.id}">${escHtml(quiz.title)}</option>`).join('')
+    : '<option value="">لا توجد امتحانات</option>';
+  quizSelect.value = currentQid;
 }
 
-function isQuestion(question) {
-  return Boolean(question && typeof question.text === 'string' && Array.isArray(question.answers));
+function renderStats() {
+  const quizCount = subjects.reduce((sum, subject) => sum + (subject.quizzes?.length || 0), 0);
+  const questionCount = subjects.reduce((sum, subject) => (
+    sum + (subject.quizzes || []).reduce((qSum, quiz) => qSum + (quiz.questions?.length || 0), 0)
+  ), 0);
+
+  statSubjects.textContent = subjects.length;
+  statQuizzes.textContent = quizCount;
+  statQuestions.textContent = questionCount;
 }
 
-function normalizeQuestion(question) {
-  const answers = question.answers
-    .filter(answer => answer && typeof answer.text !== 'undefined')
-    .map(answer => ({
-      text: String(answer.text).trim(),
-      correct: Boolean(answer.correct),
-    }))
-    .filter(answer => answer.text);
+function renderQuestions(questions) {
+  if (!questions.length) {
+    tableBody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:32px">لا توجد أسئلة في هذا الامتحان بعد.</td></tr>';
+    return;
+  }
 
+  tableBody.innerHTML = questions.map((question, index) => {
+    const correct = (question.answers || []).filter(answer => answer.correct).map(answer => answer.text).join('، ');
+    return `
+      <tr>
+        <td>${index + 1}</td>
+        <td style="max-width:320px">${escHtml(question.text)}</td>
+        <td>${typeLabel(question.type)}</td>
+        <td>${question.answers?.length || 0}</td>
+        <td style="color:var(--correct)">${escHtml(correct)}</td>
+        <td>
+          <div class="table-actions">
+            <button class="btn btn-ghost btn-sm" onclick="openQuestionModal('${question.id}')">تعديل</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteQuestionFromQuiz('${question.id}')">حذف</button>
+          </div>
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+function openQuestionModal(questionId = null) {
+  const quiz = getCurrentQuiz();
+  if (!quiz) return;
+
+  editingQuestionId = questionId;
+  modalTitle.textContent = questionId ? 'تعديل سؤال' : 'إضافة سؤال';
+
+  const question = quiz.questions?.find(item => item.id === questionId);
+  qText.value = question?.text || '';
+  qType.value = question?.type || 'mcq';
+  qType.dataset.prevValue = question?.type || 'mcq';
+
+  if (question) {
+    renderAnswerRows(question.answers || [], question.type === 'tf');
+  } else {
+    renderAnswerRows([
+      { text: '', correct: false },
+      { text: '', correct: false },
+    ]);
+  }
+
+  modal.style.display = 'flex';
+  qText.focus();
+}
+
+function closeQuestionModal() {
+  modal.style.display = 'none';
+  editingQuestionId = null;
+}
+
+function renderAnswerRows(answers, readonly = false) {
+  answerList.innerHTML = '';
+  answers.forEach(answer => addAnswerRow(answer, readonly));
+  btnAddAnswer.style.display = qType.value === 'tf' ? 'none' : '';
+}
+
+function addAnswerRow(answer = { text: '', correct: false }, readonly = false) {
+  const row = document.createElement('div');
+  row.className = `answer-row ${answer.correct ? 'is-correct' : ''}`;
+  row.innerHTML = `
+    <input type="text" class="answer-text" placeholder="الخيار" value="${escHtml(answer.text)}" ${readonly ? 'readonly' : ''}>
+    <label class="answer-correct-label" title="إجابة صحيحة">✓</label>
+    <input type="checkbox" class="answer-correct-check" title="إجابة صحيحة" ${answer.correct ? 'checked' : ''}>
+    ${readonly ? '' : '<button class="answer-remove" title="حذف">×</button>'}`;
+
+  const checkbox = row.querySelector('.answer-correct-check');
+  checkbox.addEventListener('change', () => {
+    if (qType.value === 'mcq' || qType.value === 'tf') {
+      answerList.querySelectorAll('.answer-correct-check').forEach(item => {
+        if (item !== checkbox) {
+          item.checked = false;
+          item.closest('.answer-row').classList.remove('is-correct');
+        }
+      });
+    }
+    row.classList.toggle('is-correct', checkbox.checked);
+  });
+
+  row.querySelector('.answer-remove')?.addEventListener('click', () => row.remove());
+  answerList.appendChild(row);
+}
+
+function buildQuestionFromForm() {
+  const text = qText.value.trim();
+  if (!text) {
+    showToast('اكتب نص السؤال', 'error');
+    return null;
+  }
+
+  const rows = [...answerList.querySelectorAll('.answer-row')];
+  const answers = rows.map(row => ({
+    text: row.querySelector('.answer-text').value.trim(),
+    correct: row.querySelector('.answer-correct-check').checked,
+  }));
+
+  // HZTA: Layered, highly specific boundary validation
+  if (answers.length < 2) {
+    showToast('خطأ: يجب توفير خيارين على الأقل.', 'error');
+    return null;
+  }
+  
+  if (answers.some(answer => !answer.text)) {
+    showToast('خطأ: يوجد خيار فارغ، يرجى تعبئته أو حذفه.', 'error');
+    return null;
+  }
+
+  const correctCount = answers.filter(answer => answer.correct).length;
+  if (correctCount === 0) {
+    showToast('خطأ: حدد إجابة صحيحة واحدة على الأقل.', 'error');
+    return null;
+  }
+
+  if ((qType.value === 'mcq' || qType.value === 'tf') && correctCount !== 1) {
+    showToast('خطأ: هذا النوع يتطلب إجابة صحيحة واحدة فقط.', 'error');
+    return null;
+  }
+
+  return { text, type: qType.value, answers };
+}
+
+function importAdminJson(json, fileName = '') {
+  const data = JSON.parse(json);
+
+  if (isSubjectList(data)) {
+    DB.importAll(json);
+    return;
+  }
+
+  if (isQuestionList(data)) {
+    importFlatQuestionList(data, fileName);
+    return;
+  }
+
+  if (data && isQuestionList(data.questions)) {
+    importFlatQuestionList(data.questions, fileName, data.subject, data.title);
+    return;
+  }
+
+  throw new Error('Unsupported import format');
+}
+
+function importFlatQuestionList(data, fileName, subjectName, quizTitle) {
+  const cleanQuestions = data.map(normalizeImportedQuestion);
+  const allSubjects = DB.load();
+
+  // HZTA: Explicit target resolution. Remove silent fallback to selectedSubject.
+  const nextSubjectName = (subjectName || prompt('اسم المادة المراد استيراد الأسئلة إليها:', 'مادة مستوردة') || '').trim();
+  if (!nextSubjectName) throw new Error('تم إلغاء الاستيراد: لم يتم تحديد مادة');
+
+  const defaultTitle = quizTitle || titleFromFileName(fileName) || 'امتحان مستورد';
+  const nextQuizTitle = (prompt('عنوان الامتحان:', defaultTitle) || '').trim();
+  if (!nextQuizTitle) throw new Error('تم إلغاء الاستيراد: لم يتم تحديد امتحان');
+
+  let subject = allSubjects.find(item => item.name === nextSubjectName);
+
+  if (!subject) {
+    subject = { id: uid(), name: nextSubjectName, quizzes: [] };
+    allSubjects.push(subject);
+  }
+
+  const quiz = { id: uid(), title: nextQuizTitle, questions: cleanQuestions };
+  subject.quizzes = subject.quizzes || [];
+  subject.quizzes.push(quiz);
+
+  DB.save(allSubjects);
+  currentSid = subject.id;
+  currentQid = quiz.id;
+}
+
+function normalizeImportedQuestion(question) {
+  if (!question?.text || !Array.isArray(question.answers)) {
+    throw new Error('Invalid question');
+  }
+
+  const answers = question.answers.map(answer => ({
+    text: String(answer.text || '').trim(),
+    correct: Boolean(answer.correct),
+  }));
+
+  if (answers.length < 2 || answers.some(answer => !answer.text) || !answers.some(answer => answer.correct)) {
+    throw new Error('Invalid answers');
+  }
+
+  const type = ['mcq', 'tf', 'multi'].includes(question.type) ? question.type : 'mcq';
   return {
-    id: question.id || uid(),
+    id: uid(),
     text: String(question.text).trim(),
-    type: ['mcq', 'tf', 'multi'].includes(question.type) ? question.type : 'mcq',
+    type,
     answers,
   };
 }
 
-function uid() {
-  return crypto.randomUUID?.() ||
-    Date.now().toString(36) + Math.random().toString(36).slice(2);
+function isSubjectList(data) {
+  return Array.isArray(data) && data.every(item =>
+    item && typeof item.name === 'string' && Array.isArray(item.quizzes)
+  );
 }
 
-function escHtml(str = '') {
-  return String(str)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+function isQuestionList(data) {
+  return Array.isArray(data) && data.every(item =>
+    item && typeof item.text === 'string' && Array.isArray(item.answers)
+  );
 }
 
-function shuffle(arr) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
+function titleFromFileName(fileName) {
+  return String(fileName || '')
+    .replace(/\.json$/i, '')
+    .replace(/[-_]+/g, ' ')
+    .trim();
 }
 
-// Toast — used by all pages
-function showToast(msg, type = 'info') {
-  let container = document.getElementById('toast-container');
-  if (!container) {
-    container = document.createElement('div');
-    container.id = 'toast-container';
-    document.body.appendChild(container);
-  }
-  const t = document.createElement('div');
-  t.className = `toast ${type}`;
-  const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️';
-  t.textContent = `${icon} ${msg}`;
-  container.appendChild(t);
-  setTimeout(() => t.remove(), 3500);
+function deleteQuestionFromQuiz(questionId) {
+  const subject = getCurrentSubject();
+  const quiz = getCurrentQuiz();
+  if (!subject || !quiz || !confirm('حذف هذا السؤال؟')) return;
+  DB.deleteQuestion(subject.id, quiz.id, questionId);
+  subjects = DB.load();
+  render();
+  showToast('تم حذف السؤال', 'success');
 }
 
-// Theme init — used by all pages
-function initTheme(toggleId) {
-  const saved = localStorage.getItem('qf_theme');
-  if (saved) document.documentElement.setAttribute('data-theme', saved);
-  const btn = document.getElementById(toggleId);
-  if (!btn) return;
-  const update = () => {
-    const dark = document.documentElement.getAttribute('data-theme') === 'dark';
-    btn.innerHTML = dark ? '☀️ فاتح' : '🌙 داكن';
-  };
-  btn.addEventListener('click', () => {
-    const cur = document.documentElement.getAttribute('data-theme');
-    const next = cur === 'dark' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', next);
-    localStorage.setItem('qf_theme', next);
-    update();
-  });
-  update();
+function ensureSubject() {
+  const subject = getCurrentSubject();
+  if (subject) return subject;
+
+  const name = prompt('لا توجد مادة بعد. اكتب اسم المادة أولاً:');
+  if (!name?.trim()) return null;
+
+  const created = DB.addSubject(name);
+  subjects = DB.load();
+  currentSid = created.id;
+  return created;
 }
+
+function getCurrentSubject() {
+  return subjects.find(subject => subject.id === currentSid) || null;
+}
+
+function getCurrentQuiz() {
+  return getCurrentSubject()?.quizzes?.find(quiz => quiz.id === currentQid) || null;
+}
+
+function typeLabel(type) {
+  if (type === 'tf') return 'صح / خطأ';
+  if (type === 'multi') return 'اختيارات متعددة';
+  return 'اختيار واحد';
+}
+
+window.openQuestionModal = openQuestionModal;
+window.deleteQuestionFromQuiz = deleteQuestionFromQuiz;
