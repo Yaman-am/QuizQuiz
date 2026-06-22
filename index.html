@@ -1,79 +1,84 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>QuizFlow — Take Quiz</title>
+  <title>QuizFlow — الاختبارات</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div class="page-wrapper">
-
-  <!-- Top Bar -->
-  <header class="top-bar">
-    <a href="index.html" class="top-bar-brand">
-      <span class="brand-icon">Q</span>
-      QuizFlow
-    </a>
-    <div class="top-bar-actions">
-      <button class="theme-toggle" id="theme-toggle">🌙 Dark mode</button>
-      <a href="admin.html" class="btn btn-ghost btn-sm">⚙️ Admin</a>
-    </div>
-  </header>
-
-  <!-- Progress Bar (hidden until quiz starts) -->
-  <div id="progress-bar-wrap" class="progress-bar-wrap" style="display:none;margin:0 auto;padding:0 16px;max-width:712px;width:100%">
-    <div id="progress-fill" class="progress-bar-fill" style="width:0%"></div>
+<header class="top-bar">
+  <a href="index.html" class="top-bar-brand">
+    <span class="brand-icon">Q</span>
+    QuizFlow
+  </a>
+  <div class="top-bar-actions">
+    <button class="theme-toggle" id="theme-toggle">🌙 داكن</button>
   </div>
+</header>
 
-  <!-- Main -->
-  <main class="main-content">
+<main class="main-content">
+  <div class="container">
 
-    <!-- ── Intro Screen ── -->
-    <div id="intro-screen" class="container">
-      <div class="card intro-card">
-        <div class="intro-icon">📋</div>
-        <h1>Ready to Test Your Knowledge?</h1>
-        <p>Answer each question carefully. Once you select an answer it locks in immediately — choose wisely!</p>
-        <div class="intro-meta">
-          <span>📝 <strong id="intro-q-count">—</strong> questions</span>
-          <span>⏱️ No time limit</span>
-          <span>🔒 Instant feedback</span>
-        </div>
-        <div class="options-bar" style="justify-content:center;margin-bottom:28px">
-          <label class="toggle-chip" id="shuffle-chip">
-            <input type="checkbox" id="shuffle-toggle"> 🔀 Shuffle questions
-          </label>
-        </div>
-        <button class="btn btn-primary btn-lg" id="btn-start">Start Quiz →</button>
-        <br><br>
-        <a href="admin.html" class="btn btn-ghost btn-sm">Manage Questions</a>
-      </div>
+    <!-- Hero -->
+    <div style="text-align:center;margin-bottom:32px">
+      <div style="font-size:2.8rem;margin-bottom:12px">📚</div>
+      <h1 style="font-size:1.8rem;font-weight:700;margin-bottom:8px">اختبر معلوماتك</h1>
+      <p style="color:var(--text-muted);font-size:.95rem">اختر المادة التي تريد الاختبار بها</p>
     </div>
 
-    <!-- ── Quiz Screen ── -->
-    <div id="quiz-screen" class="container" style="display:none">
-      <div id="question-stage" class="question-stage"></div>
+    <!-- Subjects list -->
+    <div id="subjects-list" style="display:flex;flex-direction:column;gap:12px"></div>
+
+    <!-- Empty state -->
+    <div id="empty-state" class="card empty-state" style="display:none">
+      <div class="es-icon">📭</div>
+      <h3>لا توجد اختبارات متاحة حالياً</h3>
+      <p>لم يتم إضافة أي اختبارات بعد.<br>تواصل مع المدرّس لإضافة المواد والاختبارات.</p>
     </div>
 
-    <!-- ── Result Screen ── -->
-    <div id="result-screen" class="container" style="display:none"></div>
+  </div>
+</main>
 
-  </main>
-</div>
-
-<!-- Toast -->
 <div id="toast-container"></div>
-
-<script src="app.js"></script>
-
+<script src="data.js"></script>
 <script>
-  // Wire up shuffle chip visual toggle
-  const chip = document.getElementById('shuffle-chip');
-  const cb   = document.getElementById('shuffle-toggle');
-  cb?.addEventListener('change', () => {
-    chip.classList.toggle('active', cb.checked);
-  });
+document.addEventListener('DOMContentLoaded', () => {
+  initTheme('theme-toggle');
+  render();
+});
+
+function render() {
+  const subjects = DB.getPublic();
+  const list  = document.getElementById('subjects-list');
+  const empty = document.getElementById('empty-state');
+
+  if (subjects.length === 0) {
+    list.style.display  = 'none';
+    empty.style.display = 'block';
+    return;
+  }
+
+  empty.style.display = 'none';
+  list.style.display  = 'flex';
+
+  const icons = ['📘','📗','📙','📕','📓','📔','📒','📃'];
+
+  list.innerHTML = subjects.map((s, i) => {
+    const qCount = s.quizzes.length;
+    const qLabel = qCount === 1 ? 'اختبار واحد' : `${qCount} اختبارات`;
+    const totalQ = s.quizzes.reduce((acc, q) => acc + (q.questions?.length || 0), 0);
+    return `
+      <a href="subject.html?sid=${s.id}" class="card subject-card card-flat">
+        <div class="s-icon">${icons[i % icons.length]}</div>
+        <div class="s-info">
+          <div class="s-name">${escHtml(s.name)}</div>
+          <div class="s-meta">${qLabel} · ${totalQ} سؤال</div>
+        </div>
+        <div class="s-arrow">←</div>
+      </a>`;
+  }).join('');
+}
 </script>
 </body>
 </html>
