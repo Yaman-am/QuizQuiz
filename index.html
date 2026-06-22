@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuizFlow — Take Quiz</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="page-wrapper">
+
+  <!-- Top Bar -->
+  <header class="top-bar">
+    <a href="index.html" class="top-bar-brand">
+      <span class="brand-icon">Q</span>
+      QuizFlow
+    </a>
+    <div class="top-bar-actions">
+      <button class="theme-toggle" id="theme-toggle">🌙 Dark mode</button>
+      <a href="admin.html" class="btn btn-ghost btn-sm">⚙️ Admin</a>
+    </div>
+  </header>
+
+  <!-- Progress Bar (hidden until quiz starts) -->
+  <div id="progress-bar-wrap" class="progress-bar-wrap" style="display:none;margin:0 auto;padding:0 16px;max-width:712px;width:100%">
+    <div id="progress-fill" class="progress-bar-fill" style="width:0%"></div>
+  </div>
+
+  <!-- Main -->
+  <main class="main-content">
+
+    <!-- ── Intro Screen ── -->
+    <div id="intro-screen" class="container">
+      <div class="card intro-card">
+        <div class="intro-icon">📋</div>
+        <h1>Ready to Test Your Knowledge?</h1>
+        <p>Answer each question carefully. Once you select an answer it locks in immediately — choose wisely!</p>
+        <div class="intro-meta">
+          <span>📝 <strong id="intro-q-count">—</strong> questions</span>
+          <span>⏱️ No time limit</span>
+          <span>🔒 Instant feedback</span>
+        </div>
+        <div class="options-bar" style="justify-content:center;margin-bottom:28px">
+          <label class="toggle-chip" id="shuffle-chip">
+            <input type="checkbox" id="shuffle-toggle"> 🔀 Shuffle questions
+          </label>
+        </div>
+        <button class="btn btn-primary btn-lg" id="btn-start">Start Quiz →</button>
+        <br><br>
+        <a href="admin.html" class="btn btn-ghost btn-sm">Manage Questions</a>
+      </div>
+    </div>
+
+    <!-- ── Quiz Screen ── -->
+    <div id="quiz-screen" class="container" style="display:none">
+      <div id="question-stage" class="question-stage"></div>
+    </div>
+
+    <!-- ── Result Screen ── -->
+    <div id="result-screen" class="container" style="display:none"></div>
+
+  </main>
+</div>
+
+<!-- Toast -->
+<div id="toast-container"></div>
+
+<script src="app.js"></script>
+
+<script>
+  // Wire up shuffle chip visual toggle
+  const chip = document.getElementById('shuffle-chip');
+  const cb   = document.getElementById('shuffle-toggle');
+  cb?.addEventListener('change', () => {
+    chip.classList.toggle('active', cb.checked);
+  });
+</script>
+</body>
+</html>

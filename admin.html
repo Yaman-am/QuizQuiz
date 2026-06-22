@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuizFlow — Admin Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="page-wrapper">
+
+  <!-- Top Bar -->
+  <header class="top-bar">
+    <a href="index.html" class="top-bar-brand">
+      <span class="brand-icon">Q</span>
+      QuizFlow
+    </a>
+    <div class="top-bar-actions">
+      <button class="theme-toggle" id="theme-toggle">🌙 Dark</button>
+      <a href="index.html" class="btn btn-primary btn-sm">▶ Take Quiz</a>
+    </div>
+  </header>
+
+  <!-- Admin Layout -->
+  <div class="admin-layout">
+
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="sidebar-section">Manage</div>
+      <ul class="sidebar-nav">
+        <li><a href="#" class="active">📋 Questions</a></li>
+      </ul>
+      <div class="sidebar-section">Data</div>
+      <ul class="sidebar-nav">
+        <li><button id="btn-sample">🧪 Load Samples</button></li>
+        <li><button id="btn-export">📤 Export JSON</button></li>
+        <li><button id="btn-import">📥 Import JSON</button></li>
+        <li><button id="btn-clear-all">🗑️ Clear All</button></li>
+      </ul>
+      <div class="sidebar-section">Links</div>
+      <ul class="sidebar-nav">
+        <li><a href="index.html">▶ Quiz Page</a></li>
+      </ul>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="admin-main">
+
+      <!-- Header row -->
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:24px">
+        <div>
+          <h2>Question Bank</h2>
+          <p class="page-subtitle">Create, edit, and manage all quiz questions.</p>
+        </div>
+        <button class="btn btn-primary" id="btn-open-modal">+ Add Question</button>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="sc-label">Total Questions</div>
+          <div class="sc-value" id="stat-total">0</div>
+          <div class="sc-sub">in question bank</div>
+        </div>
+        <div class="stat-card">
+          <div class="sc-label">Multiple Choice</div>
+          <div class="sc-value" id="stat-mcq">0</div>
+          <div class="sc-sub">MCQ questions</div>
+        </div>
+        <div class="stat-card">
+          <div class="sc-label">True / False</div>
+          <div class="sc-value" id="stat-tf">0</div>
+          <div class="sc-sub">T/F questions</div>
+        </div>
+      </div>
+
+      <!-- Empty state -->
+      <div id="empty-state" class="empty-state" style="display:none">
+        <div class="es-icon">📭</div>
+        <h3>No questions yet</h3>
+        <p>Click <strong>+ Add Question</strong> or load sample questions to get started.</p>
+      </div>
+
+      <!-- Questions table -->
+      <div id="q-table-wrap" class="q-table-wrap" style="display:none">
+        <div class="q-table-header">
+          <h3>All Questions</h3>
+          <input type="text" id="q-search" class="q-table-search" placeholder="🔍 Search questions…">
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Question</th>
+              <th>Type</th>
+              <th>Options</th>
+              <th>✓ Correct</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="q-table-body"></tbody>
+        </table>
+      </div>
+
+    </main>
+  </div><!-- /admin-layout -->
+</div><!-- /page-wrapper -->
+
+<!-- ── Modal: Add / Edit Question ── -->
+<div id="modal-backdrop" class="modal-backdrop" style="display:none">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+
+    <div class="modal-header">
+      <h3 id="modal-title">Add Question</h3>
+      <button class="modal-close" id="modal-close" aria-label="Close">✕</button>
+    </div>
+
+    <!-- Question text -->
+    <div class="form-group">
+      <label class="form-label" for="q-text">Question Text</label>
+      <textarea class="form-control" id="q-text" placeholder="Enter your question here…" rows="3"></textarea>
+    </div>
+
+    <!-- Question type -->
+    <div class="form-group">
+      <label class="form-label" for="q-type">Question Type</label>
+      <select class="form-control" id="q-type">
+        <option value="mcq">Multiple Choice (MCQ)</option>
+        <option value="tf">True / False</option>
+      </select>
+    </div>
+
+    <!-- Answers -->
+    <div class="form-group">
+      <label class="form-label">Answer Options <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);font-size:.75rem">(check ✓ to mark correct)</span></label>
+      <div id="answer-list" class="answer-list"></div>
+      <button class="btn btn-ghost btn-sm" id="btn-add-answer" style="margin-top:4px">+ Add Option</button>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="btn-cancel-q">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-q">Save Question</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast-container"></div>
+
+<script src="admin.js"></script>
+</body>
+</html>
